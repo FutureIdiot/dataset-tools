@@ -3,87 +3,191 @@
 
 #include <QComboBox>
 #include <QFileDialog>
+#include <QFuture>
+#include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QProgressBar>
+#include <QPushButton>
 #include <QSettings>
 #include <QSpinBox>
+#include <QTableWidget>
 #include <QWidget>
+
+#include "InferenceQueueController.h"
 
 #include <game-infer/Game.h>
 #include <nlohmann/json.hpp>
 
 #include <map>
+#include <optional>
 #include <string>
+#include <vector>
+
+class QEvent;
 
 class MainWidget : public QWidget {
     Q_OBJECT
 
 public:
     explicit MainWidget(QSettings *settings, QWidget *parent = nullptr);
+    ~MainWidget() override;
 
 private slots:
     void browseModelPath();
-    bool loadModel(std::string &message);
     void resetToDefaults() const;
     void onBrowseWavPath();
     void onBrowseOutputMidi();
     void onWavPathChanged(const QString &wavPath) const;
     void generateMidiOutputPath(const QString &wavPath) const;
     void onExportMidiTask();
+    void addCurrentJobToQueue();
+    void addBatchJobs();
+    void editSelectedQueueJob();
+    void removeSelectedQueueJob();
+    void moveSelectedQueueJobUp();
+    void moveSelectedQueueJobDown();
+    void startQueue();
+    void stopQueueAfterCurrent();
+    void refreshQueueTable();
+    void onQueueRunningChanged(bool running);
+
+protected:
+    void changeEvent(QEvent *event) override;
 
 private:
+    enum class ModelStatus {
+        NotLoaded,
+        ConfigurationChanged,
+        PathMissing,
+        Loading,
+        Loaded,
+        LoadFailed,
+    };
+
+    struct ModelSelection {
+        std::filesystem::path path;
+        Game::ExecutionProvider provider = Game::ExecutionProvider::CPU;
+        int deviceId = -1;
+
+        bool matches(const ModelSelection &other) const {
+            return path == other.path && provider == other.provider && deviceId == other.deviceId;
+        }
+    };
+
+    struct ProcessingParameters {
+        float segThreshold = 0.2f;
+        float segRadiusFrames = 2.0f;
+        float estThreshold = 0.2f;
+        std::vector<float> d3pmTs;
+        int languageId = 0;
+        float tempo = 120.0f;
+    };
+
+    struct ConversionRequest {
+        ModelSelection model;
+        ProcessingParameters parameters;
+        std::filesystem::path audioPath;
+        std::filesystem::path outputMidiPath;
+        int maxAudioSegmentLength = 60;
+    };
+
     void setupModelGroup();
     void setupAudioGroup();
     void setupActionButtons();
+    void setupQueueGroup();
     void updateDeviceList() const;
     void setupProcessingGroup();
-    bool updateParameterValues() const;
+    ModelSelection currentModelSelection() const;
+    ProcessingParameters currentProcessingParameters() const;
+    bool loadModel(const ModelSelection &selection, std::string &message);
+    bool updateParameterValues(const ProcessingParameters &parameters) const;
+    void setControlsEnabled(bool enabled) const;
     void loadLanguagesFromConfig(const std::filesystem::path &modelPath);
     void updateLanguageCombo();
     void updateTimeStepInfo(const std::filesystem::path &modelPath);
-    void setModelLoadingStatus(const QString &status);
+    void setModelLoadingStatus(ModelStatus status);
+    void retranslateUi();
+    [[nodiscard]] QVector<QPair<int, QString>> availableLanguages() const;
+    [[nodiscard]] quint64 selectedQueueJobId() const;
+    void editQueueJob(quint64 id);
+    [[nodiscard]] bool validateQueueBeforeStart();
 
     // Model group widgets
+    QGroupBox *m_modelGroup = nullptr;
+    QLabel *m_modelPathLabel = nullptr;
     QLineEdit *m_modelPathEdit;
     QPushButton *m_browseModelBtn;
-    QPushButton *m_loadModelBtn;
+    QLabel *m_providerLabel = nullptr;
     QComboBox *m_providerCombo;
+    QLabel *m_deviceLabel = nullptr;
     QComboBox *m_deviceCombo;
     QLabel *m_modelStatusLabel;
+    ModelStatus m_modelStatus = ModelStatus::NotLoaded;
 
     // Segmentation group widgets
+    QGroupBox *m_processingGroup = nullptr;
+    QLabel *m_segThresholdLabel = nullptr;
     QDoubleSpinBox *m_segThresholdSpin;
+    QLabel *m_segRadiusLabel = nullptr;
     QSpinBox *m_segRadiusFrameSpin;
     QLabel *m_segRadiusMsLabel;
 
     // Estimation group widgets
+    QLabel *m_estThresholdLabel = nullptr;
     QDoubleSpinBox *m_estThresholdSpin;
 
     // D3PM group widgets
+    QLabel *m_segD3PMNStepsLabel = nullptr;
     QComboBox *m_segD3PMNStepsCombo;
 
     // Other group widgets
+    QLabel *m_languageLabel = nullptr;
     QComboBox *m_languageCombo;
+    QLabel *m_tempoLabel = nullptr;
     QDoubleSpinBox *m_tempoSpin;
 
     // Audio processing widgets
+    QGroupBox *m_audioGroup = nullptr;
+    QLabel *m_wavPathLabel = nullptr;
     QLineEdit *m_wavPathLineEdit;
     QLineEdit *m_outputMidiLineEdit;
     QPushButton *m_wavPathButton;
     QPushButton *m_outputMidiButton;
+    QLabel *m_wavTipLabel = nullptr;
+    QLabel *m_outputMidiLabel = nullptr;
     QProgressBar *m_progressBar;
     QPushButton *m_runButton;
+    QPushButton *m_addQueueButton;
 
     // Action buttons
     QPushButton *m_resetParamsBtn;
+    QPushButton *m_toggleQueueBtn;
+
+    // Queue widgets
+    QGroupBox *m_queueGroup;
+    QTableWidget *m_queueTable;
+    QPushButton *m_batchAddButton;
+    QPushButton *m_editQueueButton;
+    QPushButton *m_removeQueueButton;
+    QPushButton *m_moveQueueUpButton;
+    QPushButton *m_moveQueueDownButton;
+    QPushButton *m_retryFailedButton;
+    QPushButton *m_startQueueButton;
+    QPushButton *m_stopQueueButton;
+    QLabel *m_currentQueueJobLabel;
+    QLabel *m_queueSummaryLabel;
+    quint64 m_currentQueueJobId = 0;
 
     // Settings
     QSettings *m_settings;
 
     // Game instance
     std::shared_ptr<Game::Game> m_game = nullptr;
+    std::optional<ModelSelection> m_loadedModelSelection;
+    QFuture<void> m_conversionFuture;
+    InferenceQueueController *m_queueController = nullptr;
 
     // Language mapping
     std::map<int, std::string> m_languageIdToName;
