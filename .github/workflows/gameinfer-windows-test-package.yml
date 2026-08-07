@@ -1,0 +1,200 @@
+name: Build GameInfer Windows test package
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/gameinfer-test-package
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gameinfer-windows-test-package-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: Release
+  MODEL_ARCHIVE_NAME: GAME-1.0.3-small-onnx.zip
+  MODEL_ARCHIVE_SIZE: "45676364"
+  MODEL_ARCHIVE_SHA256: 00ba0c64115b6b874d9ea4afd3e6cf822abda2a04e52569233b0a044fd40e4e8
+  MODEL_URL: https://github.com/openvpi/GAME/releases/download/v1.0.3/GAME-1.0.3-small-onnx.zip
+
+jobs:
+  package:
+    name: Windows x64 test package
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.9.3"
+
+      - name: Initialize MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Install vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 14bb451131ccf6be50a63a8d9dfe7980e46b5958
+
+      - name: Install dependencies
+        shell: pwsh
+        env:
+          CMAKE_PREFIX_PATH: ${{ env.QT_ROOT_DIR }}
+          QT_DIR: ${{ env.QT_ROOT_DIR }}
+          Qt6_DIR: ${{ env.QT_ROOT_DIR }}
+          VCPKG_KEEP_ENV_VARS: CMAKE_PREFIX_PATH;QT_DIR;Qt6_DIR
+        run: |
+          & "$env:VCPKG_ROOT/vcpkg.exe" install `
+            --x-manifest-root="$env:GITHUB_WORKSPACE/scripts/vcpkg-manifest" `
+            --x-install-root="$env:GITHUB_WORKSPACE/vcpkg_installed" `
+            --triplet=x64-windows
+          if ($LASTEXITCODE -ne 0) {
+            throw "vcpkg dependency installation failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Install ONNX Runtime with DirectML
+        shell: pwsh
+        working-directory: src/libs
+        run: |
+          cmake -Dep=dml -P ../../scripts/setup-onnxruntime.cmake
+          if ($LASTEXITCODE -ne 0) {
+            throw "ONNX Runtime setup failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Configure GameInfer
+        shell: pwsh
+        run: |
+          cmake -S . -B build-win -G Ninja `
+            -DBUILD_TESTS:BOOL=FALSE `
+            -DGAME_INFER_BUILD_TESTS:BOOL=FALSE `
+            -DAUDIO_UTIL_BUILD_TESTS:BOOL=FALSE `
+            -DCMAKE_BUILD_TYPE="$env:BUILD_TYPE" `
+            -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR/lib/cmake/Qt6" `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_INSTALLED_DIR="$env:GITHUB_WORKSPACE/vcpkg_installed" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DONNXRUNTIME_ENABLE_DML:BOOL=ON
+          if ($LASTEXITCODE -ne 0) {
+            throw "CMake configure failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Build GameInfer only
+        shell: pwsh
+        run: |
+          cmake --build build-win --target GameInfer
+          if ($LASTEXITCODE -ne 0) {
+            throw "GameInfer build failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Download and verify official small model
+        shell: pwsh
+        run: |
+          $modelArchive = Join-Path $env:RUNNER_TEMP $env:MODEL_ARCHIVE_NAME
+          Invoke-WebRequest -Uri $env:MODEL_URL -OutFile $modelArchive
+
+          $actualSize = (Get-Item $modelArchive).Length
+          if ($actualSize -ne [int64]$env:MODEL_ARCHIVE_SIZE) {
+            throw "Model archive size mismatch: expected $env:MODEL_ARCHIVE_SIZE, got $actualSize"
+          }
+
+          $actualHash = (Get-FileHash -Path $modelArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $env:MODEL_ARCHIVE_SHA256) {
+            throw "Model archive SHA-256 mismatch: expected $env:MODEL_ARCHIVE_SHA256, got $actualHash"
+          }
+
+          New-Item -ItemType Directory -Force package/model | Out-Null
+          Expand-Archive -Path $modelArchive -DestinationPath package/model -Force
+
+      - name: Assemble portable package
+        shell: pwsh
+        run: |
+          $packageRoot = Join-Path $env:GITHUB_WORKSPACE "package"
+          Copy-Item "build-win/bin/*" $packageRoot -Recurse -Force
+          Copy-Item "src/libs/onnxruntime/lib/*.dll" $packageRoot -Force
+          Copy-Item "vcpkg_installed/x64-windows/bin/*.dll" $packageRoot -Force
+          Copy-Item "LICENSE" (Join-Path $packageRoot "LICENSE.txt") -Force
+
+          $thirdPartyLicenseRoot = Join-Path $packageRoot "THIRD-PARTY-LICENSES"
+          New-Item -ItemType Directory -Force $thirdPartyLicenseRoot | Out-Null
+          Get-ChildItem "vcpkg_installed/x64-windows/share" -Directory | ForEach-Object {
+            $copyrightFile = Join-Path $_.FullName "copyright"
+            if (Test-Path $copyrightFile) {
+              Copy-Item $copyrightFile (Join-Path $thirdPartyLicenseRoot "$($_.Name).txt") -Force
+            }
+          }
+
+          $gameInferExe = Join-Path $packageRoot "GameInfer.exe"
+          if (-not (Test-Path $gameInferExe)) {
+            throw "GameInfer.exe was not produced"
+          }
+
+          $deployQt = Join-Path $env:QT_ROOT_DIR "bin/windeployqt.exe"
+          & $deployQt `
+            --release `
+            --libdir $packageRoot `
+            --plugindir (Join-Path $packageRoot "plugins") `
+            --no-translations `
+            --no-system-d3d-compiler `
+            --no-opengl-sw `
+            --force `
+            $gameInferExe
+          if ($LASTEXITCODE -ne 0) {
+            throw "windeployqt failed with exit code $LASTEXITCODE"
+          }
+
+          $requiredFiles = @(
+            "GameInfer.exe",
+            "game-infer.dll",
+            "audio-util.dll",
+            "wolf-midi.dll",
+            "onnxruntime.dll",
+            "DirectML.dll",
+            "model/GAME-1.0.3-small-onnx/config.json",
+            "model/GAME-1.0.3-small-onnx/encoder.onnx",
+            "model/GAME-1.0.3-small-onnx/segmenter.onnx",
+            "model/GAME-1.0.3-small-onnx/estimator.onnx",
+            "model/GAME-1.0.3-small-onnx/bd2dur.onnx",
+            "plugins/platforms/qwindows.dll"
+          )
+          foreach ($relativePath in $requiredFiles) {
+            if (-not (Test-Path (Join-Path $packageRoot $relativePath))) {
+              throw "Required package file is missing: $relativePath"
+            }
+          }
+
+          @"
+          GameInfer Windows x64 internal test package
+          Commit: $env:GITHUB_SHA
+
+          Keep the extracted directory structure intact and run GameInfer.exe.
+          The executable is not code-signed, so Windows may show a SmartScreen warning.
+          This package includes the official GAME 1.0.3 small ONNX model for internal testing.
+
+          Known upstream behavior: a silence-sliced continuous segment longer than 60 seconds
+          fails conversion even when the complete source file has a different duration.
+          "@ | Set-Content -Path (Join-Path $packageRoot "README-TEST.txt") -Encoding UTF8
+
+      - name: Record artifact name
+        shell: pwsh
+        run: |
+          $shortSha = $env:GITHUB_SHA.Substring(0, 7)
+          "ARTIFACT_NAME=GameInfer-windows-x64-$shortSha" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload Windows test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: package
+          if-no-files-found: error
+          retention-days: 14
