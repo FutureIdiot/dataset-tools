@@ -70,19 +70,19 @@
     </message>
     <message>
         <source>Execution provider:</source>
-        <translation>执行提供程序：</translation>
+        <translation type="vanished">执行提供程序：</translation>
     </message>
     <message>
         <source>CPU</source>
-        <translation>CPU</translation>
+        <translation type="vanished">CPU</translation>
     </message>
     <message>
         <source>DirectML</source>
-        <translation>DirectML</translation>
+        <translation type="vanished">DirectML</translation>
     </message>
     <message>
         <source>Execution device:</source>
-        <translation>执行设备：</translation>
+        <translation type="vanished">执行设备：</translation>
     </message>
     <message>
         <source>Default</source>
@@ -110,15 +110,15 @@
     </message>
     <message>
         <source>Backend:</source>
-        <translation>后端：</translation>
+        <translation type="vanished">后端：</translation>
     </message>
     <message>
         <source>Auto</source>
-        <translation>自动</translation>
+        <translation type="vanished">自动</translation>
     </message>
     <message>
         <source>CUDA</source>
-        <translation>CUDA</translation>
+        <translation type="vanished">CUDA</translation>
     </message>
     <message>
         <source>Output stems:</source>
@@ -247,6 +247,10 @@
     <message>
         <source>Tempo (BPM)</source>
         <translation>节拍（BPM）</translation>
+    </message>
+    <message>
+        <source>Use GPU</source>
+        <translation>使用 GPU</translation>
     </message>
     <message>
         <source>Details</source>

@@ -100,6 +100,9 @@ MainWidget::MainWidget(QSettings *settings, QWidget *parent)
     : QWidget(parent), m_settings(settings), m_timeStepSeconds(0.01), m_framesPerSecond(1.0 / 0.01) {
     m_game = std::make_shared<Game::Game>();
     m_queueController = new InferenceQueueController(this);
+#ifdef _WIN32
+    m_gpuAvailable = !DmlGpuUtils::getGpuList().isEmpty();
+#endif
 
     auto *mainLayout = new QVBoxLayout(this);
 
@@ -229,17 +232,7 @@ void MainWidget::retranslateUi() {
     m_modelGroup->setTitle(tr("Model configuration"));
     m_modelPathLabel->setText(tr("Model path:"));
     m_browseModelBtn->setText(tr("Browse..."));
-    m_providerLabel->setText(tr("Execution provider:"));
-    for (int index = 0; index < m_providerCombo->count(); ++index) {
-        const auto provider = static_cast<Game::ExecutionProvider>(m_providerCombo->itemData(index).toInt());
-        m_providerCombo->setItemText(index, provider == Game::ExecutionProvider::CPU ? tr("CPU") : tr("DirectML"));
-    }
-    m_deviceLabel->setText(tr("Execution device:"));
-    for (int index = 0; index < m_deviceCombo->count(); ++index) {
-        if (m_deviceCombo->itemData(index).toInt() == -1) {
-            m_deviceCombo->setItemText(index, tr("Default"));
-        }
-    }
+    m_gameGpuCheck->setText(tr("Use GPU"));
 
     m_separatorGroup->setTitle(tr("Source separation"));
     m_separatorEnabledCheck->setText(tr("Separate vocals before MIDI inference"));
@@ -247,15 +240,7 @@ void MainWidget::retranslateUi() {
     m_separatorBrowseDirectoryButton->setText(tr("Browse..."));
     m_separatorModelLabel->setText(tr("Separator model:"));
     m_separatorRefreshModelsButton->setText(tr("Refresh"));
-    m_separatorBackendLabel->setText(tr("Backend:"));
-    for (int index = 0; index < m_separatorBackendCombo->count(); ++index) {
-        const QString value = m_separatorBackendCombo->itemData(index).toString();
-        const QString label = value == QStringLiteral("auto") ? tr("Auto")
-                              : value == QStringLiteral("cpu") ? tr("CPU")
-                              : value == QStringLiteral("cuda") ? tr("CUDA")
-                                                                 : tr("DirectML");
-        m_separatorBackendCombo->setItemText(index, label);
-    }
+    m_separatorGpuCheck->setText(tr("Use GPU"));
     m_separatorOutputLabel->setText(tr("Output stems:"));
     for (int index = 0; index < m_separatorOutputCombo->count(); ++index) {
         m_separatorOutputCombo->setItemText(
@@ -342,17 +327,14 @@ void MainWidget::setupSeparatorGroup() {
     layout->addWidget(m_separatorModelCombo, 2, 1, 1, 3);
     layout->addWidget(m_separatorRefreshModelsButton, 2, 4);
 
-    m_separatorBackendLabel = new QLabel(tr("Backend:"), m_separatorGroup);
-    m_separatorBackendCombo = new QComboBox(m_separatorGroup);
-    m_separatorBackendCombo->addItem(tr("Auto"), QStringLiteral("auto"));
-    m_separatorBackendCombo->addItem(tr("CPU"), QStringLiteral("cpu"));
-    m_separatorBackendCombo->addItem(tr("CUDA"), QStringLiteral("cuda"));
-#ifdef Q_OS_WIN
-    m_separatorBackendCombo->addItem(tr("DirectML"), QStringLiteral("directml"));
-#endif
-    const int savedBackend = m_separatorBackendCombo->findData(
-        m_settings->value("Separator/backend", QStringLiteral("auto")).toString());
-    m_separatorBackendCombo->setCurrentIndex(savedBackend >= 0 ? savedBackend : 0);
+    m_separatorGpuCheck = new QCheckBox(tr("Use GPU"), m_separatorGroup);
+    const bool separatorGpuWasEnabled =
+        m_settings->value("Separator/useGpu",
+                          m_settings->value("Separator/backend", QStringLiteral("cpu")).toString() ==
+                              QStringLiteral("directml"))
+            .toBool();
+    m_separatorGpuCheck->setChecked(m_gpuAvailable && separatorGpuWasEnabled);
+    m_separatorGpuCheck->setEnabled(m_gpuAvailable);
 
     m_separatorOutputLabel = new QLabel(tr("Output stems:"), m_separatorGroup);
     m_separatorOutputCombo = new QComboBox(m_separatorGroup);
@@ -362,8 +344,7 @@ void MainWidget::setupSeparatorGroup() {
         m_settings->value("Separator/outputMode", QStringLiteral("vocals")).toString());
     m_separatorOutputCombo->setCurrentIndex(savedOutput >= 0 ? savedOutput : 0);
     m_separatorAdvancedButton = new QPushButton(tr("Advanced parameters..."), m_separatorGroup);
-    layout->addWidget(m_separatorBackendLabel, 3, 0);
-    layout->addWidget(m_separatorBackendCombo, 3, 1);
+    layout->addWidget(m_separatorGpuCheck, 3, 0, 1, 2);
     layout->addWidget(m_separatorOutputLabel, 3, 2);
     layout->addWidget(m_separatorOutputCombo, 3, 3);
     layout->addWidget(m_separatorAdvancedButton, 3, 4);
@@ -379,9 +360,8 @@ void MainWidget::setupSeparatorGroup() {
     });
     connect(m_separatorModelCombo->lineEdit(), &QLineEdit::textChanged, this,
             [this](const QString &value) { m_settings->setValue("Separator/modelFilename", value); });
-    connect(m_separatorBackendCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
-        m_settings->setValue("Separator/backend", m_separatorBackendCombo->currentData().toString());
-    });
+    connect(m_separatorGpuCheck, &QCheckBox::toggled, this,
+            [this](const bool checked) { m_settings->setValue("Separator/useGpu", checked); });
     connect(m_separatorOutputCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
         m_settings->setValue("Separator/outputMode", m_separatorOutputCombo->currentData().toString());
     });
@@ -420,27 +400,13 @@ void MainWidget::setupModelGroup() {
     connect(m_browseModelBtn, &QPushButton::clicked, this, &MainWidget::browseModelPath);
     layout->addWidget(m_browseModelBtn, 0, 4);
 
-    // Provider selection
-    m_providerLabel = new QLabel(tr("Execution provider:"));
-    layout->addWidget(m_providerLabel, 1, 0);
-    m_providerCombo = new QComboBox();
-    m_providerCombo->addItem(tr("CPU"), static_cast<int>(Game::ExecutionProvider::CPU));
-#ifdef _WIN32
-    m_providerCombo->addItem(tr("DirectML"), static_cast<int>(Game::ExecutionProvider::DML));
-#endif
-    layout->addWidget(m_providerCombo, 1, 1);
+    m_gameGpuCheck = new QCheckBox(tr("Use GPU"));
+    m_gameGpuCheck->setChecked(m_gpuAvailable && m_settings->value("MainWidget/useGpu", false).toBool());
+    m_gameGpuCheck->setEnabled(m_gpuAvailable);
+    layout->addWidget(m_gameGpuCheck, 1, 0, 1, 2);
 
-    // Device selection
-    m_deviceLabel = new QLabel(tr("Execution device:"));
-    layout->addWidget(m_deviceLabel, 1, 2);
-    m_deviceCombo = new QComboBox();
-    m_deviceCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-    m_deviceCombo->addItem(tr("Default"), -1);
-    layout->addWidget(m_deviceCombo, 1, 3);
-
-    // Refresh devices when provider changes
-    connect(m_providerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
-        updateDeviceList();
+    connect(m_gameGpuCheck, &QCheckBox::toggled, this, [this](const bool checked) {
+        m_settings->setValue("MainWidget/useGpu", checked);
         setModelLoadingStatus(ModelStatus::ConfigurationChanged);
     });
 
@@ -451,9 +417,6 @@ void MainWidget::setupModelGroup() {
 
     connect(m_modelPathEdit, &QLineEdit::textChanged, this,
             [this] { setModelLoadingStatus(ModelStatus::ConfigurationChanged); });
-    connect(m_deviceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-            [this] { setModelLoadingStatus(ModelStatus::ConfigurationChanged); });
-
     // Removed Load Model button
 
     auto *mainLayout = qobject_cast<QVBoxLayout *>(this->layout());
@@ -500,24 +463,6 @@ void MainWidget::setModelLoadingStatus(const ModelStatus status) {
             m_modelStatusLabel->setText(text);
         },
         Qt::QueuedConnection);
-}
-
-void MainWidget::updateDeviceList() const {
-    m_deviceCombo->clear();
-
-    const auto provider = static_cast<Game::ExecutionProvider>(m_providerCombo->currentData().toInt());
-
-    if (provider == Game::ExecutionProvider::DML) {
-#ifdef _WIN32
-        QList<GpuInfo> gpuList = DmlGpuUtils::getGpuList();
-        for (const auto &gpu : gpuList) {
-            const double memoryGB = static_cast<double>(gpu.memory) / (1024 * 1024 * 1024);
-            QString deviceName = QString("%1 (%2 GB)").arg(gpu.description).arg(memoryGB, 0, 'f', 2);
-            m_deviceCombo->addItem(deviceName, gpu.index);
-        }
-#endif
-    }
-    m_deviceCombo->addItem(tr("Default"), -1);
 }
 
 void MainWidget::setupProcessingGroup() {
@@ -1327,8 +1272,8 @@ void MainWidget::updateTimeStepInfo(const std::filesystem::path &modelPath) {
 MainWidget::ModelSelection MainWidget::currentModelSelection() const {
     return {
         std::filesystem::path(m_modelPathEdit->text().toLocal8Bit().toStdString()),
-        static_cast<Game::ExecutionProvider>(m_providerCombo->currentData().toInt()),
-        m_deviceCombo->currentData().toInt(),
+        m_gameGpuCheck->isChecked() ? Game::ExecutionProvider::DML : Game::ExecutionProvider::CPU,
+        -1,
     };
 }
 
@@ -1457,8 +1402,7 @@ void MainWidget::setControlsEnabled(const bool enabled) const {
     setSeparatorControlsEnabled(enabled);
     m_modelPathEdit->setEnabled(enabled);
     m_browseModelBtn->setEnabled(enabled);
-    m_providerCombo->setEnabled(enabled);
-    m_deviceCombo->setEnabled(enabled);
+    m_gameGpuCheck->setEnabled(enabled && m_gpuAvailable);
     m_segThresholdSpin->setEnabled(enabled);
     m_segRadiusFrameSpin->setEnabled(enabled);
     m_estThresholdSpin->setEnabled(enabled);
@@ -1483,7 +1427,7 @@ void MainWidget::setSeparatorControlsEnabled(const bool enabled) const {
     m_separatorBrowseDirectoryButton->setEnabled(configurationEnabled);
     m_separatorModelCombo->setEnabled(configurationEnabled);
     m_separatorRefreshModelsButton->setEnabled(configurationEnabled);
-    m_separatorBackendCombo->setEnabled(configurationEnabled);
+    m_separatorGpuCheck->setEnabled(configurationEnabled && m_gpuAvailable);
     m_separatorOutputCombo->setEnabled(configurationEnabled);
     m_separatorAdvancedButton->setEnabled(configurationEnabled);
 }
@@ -1493,7 +1437,7 @@ SeparatorWorkerConfiguration MainWidget::currentSeparatorConfiguration() const {
         separatorWorkerScriptPath(),
         m_separatorModelDirectoryEdit->text().trimmed(),
         m_separatorModelCombo->currentText().trimmed(),
-        m_separatorBackendCombo->currentData().toString(),
+        m_separatorGpuCheck->isChecked() ? QStringLiteral("directml") : QStringLiteral("cpu"),
         m_separatorOutputCombo->currentData().toString(),
         m_separatorParameters,
     };
