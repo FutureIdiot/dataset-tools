@@ -43,9 +43,10 @@ jobs:
         shell: pwsh
         env:
           UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/gameinfer-separator-validation
+          GAMEINFER_SEPARATOR_TOOLS_DIR: ${{ runner.temp }}/gameinfer-separator-tools
         run: |
           uv run --locked --project src/apps/GameInfer/workers python -c `
-            "import importlib.util, onnxruntime; from audio_separator.separator import Separator; assert importlib.util.find_spec('torch_directml') is not None; print(onnxruntime.get_available_providers())"
+            "import importlib.util, subprocess, sys; sys.path.insert(0, 'src/apps/GameInfer/workers'); import onnxruntime; from separator_worker import _ensure_ffmpeg_on_path; ffmpeg = _ensure_ffmpeg_on_path(); subprocess.run([str(ffmpeg), '-version'], check=True); from audio_separator.separator import Separator; Separator(info_only=True); assert importlib.util.find_spec('torch_directml') is not None; print(onnxruntime.get_available_providers())"
           if ($LASTEXITCODE -ne 0) {
             throw "separator dependency validation failed with exit code $LASTEXITCODE"
           }
