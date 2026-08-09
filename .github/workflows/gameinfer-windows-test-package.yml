@@ -32,6 +32,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install separator runtime launcher
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.32"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -84,7 +89,8 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_INSTALLED_DIR="$env:GITHUB_WORKSPACE/vcpkg_installed" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
-            -DONNXRUNTIME_ENABLE_DML:BOOL=ON
+            -DONNXRUNTIME_ENABLE_DML:BOOL=ON `
+            -DGAMEINFER_REQUIRE_SEPARATOR_UV:BOOL=ON
           if ($LASTEXITCODE -ne 0) {
             throw "CMake configure failed with exit code $LASTEXITCODE"
           }
@@ -160,6 +166,11 @@ jobs:
             "wolf-midi.dll",
             "onnxruntime.dll",
             "DirectML.dll",
+            "separator-runtime/uv.exe",
+            "separator-worker/.python-version",
+            "separator-worker/pyproject.toml",
+            "separator-worker/uv.lock",
+            "separator-worker/separator_worker.py",
             "model/GAME-1.0.3-small-onnx/config.json",
             "model/GAME-1.0.3-small-onnx/encoder.onnx",
             "model/GAME-1.0.3-small-onnx/segmenter.onnx",
@@ -181,8 +192,12 @@ jobs:
           The executable is not code-signed, so Windows may show a SmartScreen warning.
           This package includes the official GAME 1.0.3 small ONNX model for internal testing.
 
-          Known upstream behavior: a silence-sliced continuous segment longer than 60 seconds
-          fails conversion even when the complete source file has a different duration.
+          Source separation is enabled by default. No system Python installation is required.
+          On first separation, GameInfer downloads its locked separator environment and the selected
+          audio-separator model. Keep the PC online and allow extra setup time; later runs reuse both caches.
+
+          Known behavior: if the separated vocals still contain a silence-sliced continuous segment
+          longer than 60 seconds, that file can still fail MIDI conversion. Manual cropping is not yet included.
           "@ | Set-Content -Path (Join-Path $packageRoot "README-TEST.txt") -Encoding UTF8
 
       - name: Record artifact name
