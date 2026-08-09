@@ -1,9 +1,11 @@
 [project]
 name = "gameinfer-separator-worker"
 version = "0.1.0"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.12,<3.13"
 dependencies = [
-    "audio-separator==0.44.5",
+    "audio-separator[dml]==0.44.5; sys_platform == 'win32'",
+    "audio-separator[cpu]==0.44.5; sys_platform != 'win32'",
+    "torch-directml==0.2.5.dev240914; sys_platform == 'win32'",
 ]
 
 [tool.uv]
