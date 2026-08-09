@@ -5,6 +5,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "audio-separator[dml]==0.44.5; sys_platform == 'win32'",
     "audio-separator[cpu]==0.44.5; sys_platform != 'win32'",
+    "imageio-ffmpeg==0.6.0",
     "torch-directml==0.2.5.dev240914; sys_platform == 'win32'",
 ]
 

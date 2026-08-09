@@ -113,10 +113,18 @@ bool SeparatorWorkerClient::start(const SeparatorWorkerConfiguration &configurat
             error = QStringLiteral("failed to create the separator runtime directory: %1").arg(runtimeRoot);
             return false;
         }
+        const QString toolsRoot = QDir(runtimeRoot).filePath(QStringLiteral("tools"));
+        if (!QDir().mkpath(toolsRoot)) {
+            error = QStringLiteral("failed to create the separator tools directory: %1").arg(toolsRoot);
+            return false;
+        }
         environment.insert(QStringLiteral("UV_PROJECT_ENVIRONMENT"),
                            QDir(runtimeRoot).filePath(QStringLiteral("environment")));
         environment.insert(QStringLiteral("UV_PYTHON_INSTALL_DIR"),
                            QDir(runtimeRoot).filePath(QStringLiteral("python")));
+        environment.insert(QStringLiteral("GAMEINFER_SEPARATOR_TOOLS_DIR"), toolsRoot);
+        environment.insert(QStringLiteral("PATH"),
+                           toolsRoot + QDir::listSeparator() + environment.value(QStringLiteral("PATH")));
         if (!cacheRoot.isEmpty()) {
             const QString uvCache = QDir(cacheRoot).filePath(QStringLiteral("separator-uv"));
             QDir().mkpath(uvCache);
