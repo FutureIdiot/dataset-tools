@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import sys
+import tempfile
 import traceback
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,38 @@ def _reply(request_id: Any, event: str, **payload: Any) -> None:
     message = {"request_id": request_id, "event": event, **payload}
     sys.stdout.write(json.dumps(message, ensure_ascii=False) + "\n")
     sys.stdout.flush()
+
+
+def _ensure_ffmpeg_on_path() -> Path:
+    existing = shutil.which("ffmpeg")
+    if existing:
+        return Path(existing).resolve()
+
+    from imageio_ffmpeg import get_ffmpeg_exe
+
+    bundled = Path(get_ffmpeg_exe()).resolve()
+    if not bundled.is_file():
+        raise FileNotFoundError(f"bundled FFmpeg executable not found: {bundled}")
+
+    configured_tools_dir = os.environ.get("GAMEINFER_SEPARATOR_TOOLS_DIR", "").strip()
+    tools_dir = (
+        Path(configured_tools_dir)
+        if configured_tools_dir
+        else Path(tempfile.gettempdir()) / "gameinfer-separator-tools"
+    )
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    ffmpeg = tools_dir / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+    if not ffmpeg.is_file() or ffmpeg.stat().st_size != bundled.stat().st_size:
+        shutil.copy2(bundled, ffmpeg)
+    if os.name != "nt":
+        ffmpeg.chmod(ffmpeg.stat().st_mode | 0o111)
+
+    current_path = os.environ.get("PATH", "")
+    os.environ["PATH"] = str(tools_dir) + (os.pathsep + current_path if current_path else "")
+    resolved = shutil.which("ffmpeg")
+    if not resolved:
+        raise FileNotFoundError(f"failed to expose bundled FFmpeg from: {ffmpeg}")
+    return Path(resolved).resolve()
 
 
 def _flatten_models(grouped: dict[str, Any]) -> list[dict[str, Any]]:
@@ -56,6 +90,7 @@ class SeparatorWorker:
 
     @staticmethod
     def _separator_class() -> Any:
+        _ensure_ffmpeg_on_path()
         from audio_separator.separator import Separator
 
         return Separator

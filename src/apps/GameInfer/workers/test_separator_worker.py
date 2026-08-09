@@ -6,11 +6,41 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import separator_worker
 
 
 WORKER = Path(__file__).with_name("separator_worker.py")
+
+
+class SeparatorWorkerBootstrapTest(unittest.TestCase):
+    def test_bundled_ffmpeg_is_exposed_with_the_expected_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bundled = root / ("imageio-ffmpeg.exe" if os.name == "nt" else "imageio-ffmpeg")
+            bundled.write_bytes(b"bundled-ffmpeg")
+            tools_dir = root / "tools"
+            fake_imageio_ffmpeg = types.ModuleType("imageio_ffmpeg")
+            fake_imageio_ffmpeg.get_ffmpeg_exe = lambda: str(bundled)
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {"PATH": "", "GAMEINFER_SEPARATOR_TOOLS_DIR": str(tools_dir)},
+                    clear=False,
+                ),
+                patch.dict(sys.modules, {"imageio_ffmpeg": fake_imageio_ffmpeg}),
+            ):
+                resolved = separator_worker._ensure_ffmpeg_on_path()
+
+            expected = tools_dir / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+            self.assertEqual(resolved, expected.resolve())
+            self.assertEqual(expected.read_bytes(), b"bundled-ffmpeg")
 
 
 class SeparatorWorkerProtocolTest(unittest.TestCase):
