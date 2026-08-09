@@ -11,7 +11,7 @@ DiffSinger dataset processing tools for singing voice synthesis data preparation
 | **AudioSlicer** | RMS-based automatic audio slicing with Audacity CSV marker support |
 | **LyricFA** | Lyric forced alignment using FunASR Paraformer (Chinese) |
 | **HubertFA** | HuBERT phoneme forced alignment with Praat TextGrid output |
-| **GameInfer** | GAME audio-to-MIDI transcription (4-model ONNX pipeline) |
+| **GameInfer** | Optional source separation followed by GAME audio-to-MIDI transcription |
 
 ## Supported Platforms
 
@@ -47,13 +47,35 @@ Required for GameInfer. Download an archive with `onnx` in its filename from the
 
 ### GameInfer Usage
 
-1. Select the GAME model directory and the execution provider/device.
-2. Add one or more WAV, FLAC, or MP3 files, or drag them into the task queue.
-3. Choose the default `Language` and `Tempo` for new tasks. Use **Apply to all editable tasks** when
+1. Configure **Source separation** when the inputs are full mixes. Select the model cache, separator model,
+   backend, and either `Vocals` (default) or `Vocals + Instrumental`. Disable separation for
+   files that are already clean vocal stems.
+2. Select the GAME model directory and the execution provider/device.
+3. Add one or more WAV, FLAC, or MP3 files, or drag them into the task queue.
+4. Choose the default `Language` and `Tempo` for new tasks. Use **Apply to all editable tasks** when
    existing pending or failed tasks should use the same values.
-4. Adjust input/output paths, output names, `Language`, or `Tempo` directly in individual queue rows.
+5. Adjust input/output paths, output names, `Language`, or `Tempo` directly in individual queue rows.
    MIDI output defaults to the input directory with the same base file name.
-5. Select **Start conversion**. Tasks run in queue order; a failed task does not stop later tasks.
+6. Select **Start conversion**. GameInfer separates every pending input first with one persistent separator
+   model, closes that worker to release its memory, then loads GAME once and generates MIDI for every successful
+   vocal stem. A failed task does not stop later tasks.
+
+Only the vocals stem is passed to GAME. `Vocals + Instrumental` also keeps `<midi-name>_instrumental.wav` for
+the user; an instrumental-only mode is intentionally not provided. Separated files are written beside each MIDI
+as `<midi-name>_vocals.wav` and, when selected, `<midi-name>_instrumental.wav`.
+
+GameInfer uses a persistent worker backed by
+[`audio-separator`](https://github.com/nomadkaraoke/python-audio-separator). The worker runtime is managed by
+the application: its Python and locked dependencies are installed into GameInfer's application-data directory
+on first use and reused afterwards. Users do not need to install Python or configure an interpreter. Release
+packages include the `uv` runtime launcher; source builds bundle it automatically when `uv` is available during
+CMake configuration (`GAMEINFER_SEPARATOR_UV_EXECUTABLE` may be set explicitly by packagers, and release builds
+can enforce it with `GAMEINFER_REQUIRE_SEPARATOR_UV=ON`).
+
+The model selector is editable. Cached `.ckpt`, `.onnx`, `.pth`, and `.yaml` models are listed automatically;
+an `audio-separator` model filename may also be entered directly and will be downloaded into the selected cache
+when first loaded. Architecture-specific MDX, MDXC/RoFormer, VR, and Demucs options are available under
+**Advanced parameters**.
 
 The interface language can be changed between English and Simplified Chinese from **Settings**.
 

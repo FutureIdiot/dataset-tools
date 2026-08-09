@@ -2,6 +2,7 @@
 #define MAINWIDGET_H
 
 #include <QComboBox>
+#include <QCheckBox>
 #include <QFileDialog>
 #include <QGroupBox>
 #include <QLabel>
@@ -14,6 +15,8 @@
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QWidget>
+
+#include "separator/SeparatorWorkerClient.h"
 
 #include "InferenceQueueController.h"
 
@@ -39,6 +42,9 @@ public:
 
 private slots:
     void browseModelPath();
+    void browseSeparatorModelDirectory();
+    void refreshSeparatorModels();
+    void showAdvancedSeparatorSettings();
     void resetToDefaults() const;
     void addBatchJobs();
     void applyQueueDefaultsToEditableJobs();
@@ -84,6 +90,7 @@ private:
     };
 
     void setupModelGroup();
+    void setupSeparatorGroup();
     void setupActionButtons();
     void setupQueueGroup();
     void setupExecutionBar();
@@ -94,6 +101,7 @@ private:
     bool loadModel(const ModelSelection &selection, std::string &message);
     bool updateParameterValues(const ProcessingParameters &parameters) const;
     void setControlsEnabled(bool enabled) const;
+    void setSeparatorControlsEnabled(bool enabled) const;
     void loadLanguagesFromConfig(const std::filesystem::path &modelPath);
     void updateLanguageCombo();
     void updateTimeStepInfo(const std::filesystem::path &modelPath);
@@ -105,6 +113,24 @@ private:
     void addBatchJobsFromFiles(const QStringList &files);
     void updateQueueJobFromRow(int row);
     [[nodiscard]] bool validateQueueBeforeStart();
+    [[nodiscard]] SeparatorWorkerConfiguration currentSeparatorConfiguration() const;
+    [[nodiscard]] QString separatorWorkerScriptPath() const;
+
+    // Separator group widgets
+    QGroupBox *m_separatorGroup = nullptr;
+    QCheckBox *m_separatorEnabledCheck = nullptr;
+    QLabel *m_separatorModelDirectoryLabel = nullptr;
+    QLineEdit *m_separatorModelDirectoryEdit = nullptr;
+    QPushButton *m_separatorBrowseDirectoryButton = nullptr;
+    QLabel *m_separatorModelLabel = nullptr;
+    QComboBox *m_separatorModelCombo = nullptr;
+    QPushButton *m_separatorRefreshModelsButton = nullptr;
+    QLabel *m_separatorBackendLabel = nullptr;
+    QComboBox *m_separatorBackendCombo = nullptr;
+    QLabel *m_separatorOutputLabel = nullptr;
+    QComboBox *m_separatorOutputCombo = nullptr;
+    QPushButton *m_separatorAdvancedButton = nullptr;
+    QJsonObject m_separatorParameters;
 
     // Model group widgets
     QGroupBox *m_modelGroup = nullptr;

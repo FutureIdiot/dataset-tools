@@ -27,8 +27,11 @@ quint64 InferenceQueueController::addJob(QueueJob job) {
 
     job.id = m_nextId++;
     job.status = QueueJobStatus::Pending;
+    job.failureStage = QueueFailureStage::None;
     job.progress = 0;
     job.error.clear();
+    job.vocalsPath.clear();
+    job.instrumentalPath.clear();
     m_jobs.push_back(std::move(job));
     emit jobsChanged();
     return m_jobs.constLast().id;
@@ -46,10 +49,26 @@ bool InferenceQueueController::updateJob(const quint64 id, const QueueJob &job) 
 
     QueueJob updated = job;
     updated.id = id;
-    updated.status = m_jobs[index].status == QueueJobStatus::Completed ? QueueJobStatus::Completed
-                                                                      : QueueJobStatus::Pending;
+    const QueueJob &previous = m_jobs[index];
+    const bool separationArtifactStillApplies = updated.inputPath == previous.inputPath &&
+                                                updated.outputPath == previous.outputPath &&
+                                                !previous.vocalsPath.isEmpty();
+    if (previous.status == QueueJobStatus::Completed) {
+        updated.status = QueueJobStatus::Completed;
+    } else if (separationArtifactStillApplies &&
+               (previous.status == QueueJobStatus::Separated ||
+                (previous.status == QueueJobStatus::Failed && previous.failureStage == QueueFailureStage::Midi))) {
+        updated.status = QueueJobStatus::Separated;
+    } else {
+        updated.status = QueueJobStatus::Pending;
+    }
+    updated.failureStage = QueueFailureStage::None;
     updated.progress = updated.status == QueueJobStatus::Completed ? 100 : 0;
     updated.error.clear();
+    if (updated.status == QueueJobStatus::Pending) {
+        updated.vocalsPath.clear();
+        updated.instrumentalPath.clear();
+    }
     m_jobs[index] = std::move(updated);
     emit jobsChanged();
     return true;
@@ -93,7 +112,8 @@ int InferenceQueueController::applyDefaultsToEditableJobs(const int languageId,
 
     int updatedCount = 0;
     for (auto &job : m_jobs) {
-        if (job.status != QueueJobStatus::Pending && job.status != QueueJobStatus::Failed) {
+        if (job.status != QueueJobStatus::Pending && job.status != QueueJobStatus::Separated &&
+            job.status != QueueJobStatus::Failed) {
             continue;
         }
         job.languageId = languageId;
@@ -115,7 +135,14 @@ void InferenceQueueController::resetFailedJobs() {
     bool changed = false;
     for (auto &job : m_jobs) {
         if (job.status == QueueJobStatus::Failed) {
-            job.status = QueueJobStatus::Pending;
+            job.status = job.failureStage == QueueFailureStage::Midi && !job.vocalsPath.isEmpty()
+                             ? QueueJobStatus::Separated
+                             : QueueJobStatus::Pending;
+            if (job.status == QueueJobStatus::Pending) {
+                job.vocalsPath.clear();
+                job.instrumentalPath.clear();
+            }
+            job.failureStage = QueueFailureStage::None;
             job.progress = 0;
             job.error.clear();
             changed = true;
@@ -127,13 +154,18 @@ void InferenceQueueController::resetFailedJobs() {
 }
 
 bool InferenceQueueController::start(Processor processor) {
-    if (m_running || m_future.isRunning() || !processor) {
+    return startPipeline(false, {}, std::move(processor));
+}
+
+bool InferenceQueueController::startPipeline(const bool separationEnabled, SeparationProcessor separationProcessor,
+                                             Processor midiProcessor) {
+    if (m_running || m_future.isRunning() || !midiProcessor || (separationEnabled && !separationProcessor)) {
         return false;
     }
 
     QVector<QueueJob> pendingJobs;
     for (const auto &job : m_jobs) {
-        if (job.status == QueueJobStatus::Pending) {
+        if (job.status == QueueJobStatus::Pending || job.status == QueueJobStatus::Separated) {
             pendingJobs.push_back(job);
         }
     }
@@ -145,48 +177,104 @@ bool InferenceQueueController::start(Processor processor) {
     m_running = true;
     emit runningChanged(true);
 
-    m_future = QtConcurrent::run([this, pendingJobs = std::move(pendingJobs), processor = std::move(processor)] {
+    m_future = QtConcurrent::run([this, pendingJobs = std::move(pendingJobs), separationEnabled,
+                                  separationProcessor = std::move(separationProcessor),
+                                  midiProcessor = std::move(midiProcessor)]() mutable {
         bool stopped = false;
 
-        for (const auto &job : pendingJobs) {
-            QMetaObject::invokeMethod(
-                this,
-                [this, id = job.id] {
-                    updateJobState(id, QueueJobStatus::Running, 0, {});
-                    emit currentJobChanged(id);
-                },
-                Qt::QueuedConnection);
-
-            QString error;
-            bool success = false;
-            try {
-                success = processor(
-                    job,
-                    [this, id = job.id](const int progress) {
-                        QMetaObject::invokeMethod(
-                            this, [this, id, progress] { updateJobProgress(id, progress); }, Qt::QueuedConnection);
+        if (separationEnabled) {
+            for (auto &job : pendingJobs) {
+                if (job.status == QueueJobStatus::Separated) {
+                    continue;
+                }
+                QMetaObject::invokeMethod(
+                    this,
+                    [this, id = job.id] {
+                        updateJobState(id, QueueJobStatus::Separating, 0, {});
+                        emit currentJobChanged(id);
                     },
-                    error);
-            } catch (const std::exception &exception) {
-                error = QString::fromLocal8Bit(exception.what());
-            } catch (...) {
-                error = tr("Unknown conversion error");
-            }
-            if (!success && error.trimmed().isEmpty()) {
-                error = tr("The conversion failed without an error message.");
-            }
+                    Qt::QueuedConnection);
 
-            QMetaObject::invokeMethod(
-                this,
-                [this, id = job.id, success, error] {
-                    updateJobState(id, success ? QueueJobStatus::Completed : QueueJobStatus::Failed,
-                                   success ? 100 : 0, error);
-                },
-                Qt::QueuedConnection);
+                QString error;
+                bool success = false;
+                try {
+                    success = separationProcessor(
+                        job,
+                        [this, id = job.id](const int progress) {
+                            QMetaObject::invokeMethod(
+                                this, [this, id, progress] { updateJobProgress(id, progress); }, Qt::QueuedConnection);
+                        },
+                        error);
+                } catch (const std::exception &exception) {
+                    error = QString::fromLocal8Bit(exception.what());
+                } catch (...) {
+                    error = tr("Unknown separation error");
+                }
+                if (!success && error.trimmed().isEmpty()) {
+                    error = tr("The separation failed without an error message.");
+                }
+                job.status = success ? QueueJobStatus::Separated : QueueJobStatus::Failed;
+                job.failureStage = success ? QueueFailureStage::None : QueueFailureStage::Separation;
+                QMetaObject::invokeMethod(
+                    this, [this, job, success, error] { updateJobSeparation(job.id, success, job, error); },
+                    Qt::QueuedConnection);
 
-            if (m_stopRequested.load()) {
-                stopped = true;
-                break;
+                if (m_stopRequested.load()) {
+                    stopped = true;
+                    break;
+                }
+            }
+        }
+
+        if (!stopped) {
+            for (const auto &job : pendingJobs) {
+                if (separationEnabled && job.status != QueueJobStatus::Separated) {
+                    continue;
+                }
+                if (!separationEnabled && job.status != QueueJobStatus::Pending &&
+                    job.status != QueueJobStatus::Separated) {
+                    continue;
+                }
+                QMetaObject::invokeMethod(
+                    this,
+                    [this, id = job.id] {
+                        updateJobState(id, QueueJobStatus::Running, 0, {});
+                        emit currentJobChanged(id);
+                    },
+                    Qt::QueuedConnection);
+
+                QString error;
+                bool success = false;
+                try {
+                    success = midiProcessor(
+                        job,
+                        [this, id = job.id](const int progress) {
+                            QMetaObject::invokeMethod(
+                                this, [this, id, progress] { updateJobProgress(id, progress); }, Qt::QueuedConnection);
+                        },
+                        error);
+                } catch (const std::exception &exception) {
+                    error = QString::fromLocal8Bit(exception.what());
+                } catch (...) {
+                    error = tr("Unknown conversion error");
+                }
+                if (!success && error.trimmed().isEmpty()) {
+                    error = tr("The conversion failed without an error message.");
+                }
+
+                QMetaObject::invokeMethod(
+                    this,
+                    [this, id = job.id, success, error] {
+                        updateJobState(id, success ? QueueJobStatus::Completed : QueueJobStatus::Failed,
+                                       success ? 100 : 0, error,
+                                       success ? QueueFailureStage::None : QueueFailureStage::Midi);
+                    },
+                    Qt::QueuedConnection);
+
+                if (m_stopRequested.load()) {
+                    stopped = true;
+                    break;
+                }
             }
         }
 
@@ -220,20 +308,37 @@ int InferenceQueueController::indexOf(const quint64 id) const {
 }
 
 void InferenceQueueController::updateJobState(const quint64 id, const QueueJobStatus status, const int progress,
-                                              const QString &error) {
+                                              const QString &error, const QueueFailureStage failureStage) {
     const int index = indexOf(id);
     if (index < 0) {
         return;
     }
     m_jobs[index].status = status;
+    m_jobs[index].failureStage = failureStage;
     m_jobs[index].progress = std::clamp(progress, 0, 100);
     m_jobs[index].error = error;
     emit jobsChanged();
 }
 
+void InferenceQueueController::updateJobSeparation(const quint64 id, const bool success, const QueueJob &job,
+                                                   const QString &error) {
+    const int index = indexOf(id);
+    if (index < 0) {
+        return;
+    }
+    m_jobs[index].status = success ? QueueJobStatus::Separated : QueueJobStatus::Failed;
+    m_jobs[index].failureStage = success ? QueueFailureStage::None : QueueFailureStage::Separation;
+    m_jobs[index].progress = success ? 100 : 0;
+    m_jobs[index].error = error;
+    m_jobs[index].vocalsPath = job.vocalsPath;
+    m_jobs[index].instrumentalPath = job.instrumentalPath;
+    emit jobsChanged();
+}
+
 void InferenceQueueController::updateJobProgress(const quint64 id, const int progress) {
     const int index = indexOf(id);
-    if (index < 0 || m_jobs[index].status != QueueJobStatus::Running) {
+    if (index < 0 || (m_jobs[index].status != QueueJobStatus::Separating &&
+                      m_jobs[index].status != QueueJobStatus::Running)) {
         return;
     }
     m_jobs[index].progress = std::clamp(progress, 0, 100);

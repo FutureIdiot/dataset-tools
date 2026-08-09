@@ -11,9 +11,17 @@
 
 enum class QueueJobStatus {
     Pending,
+    Separating,
+    Separated,
     Running,
     Completed,
     Failed,
+};
+
+enum class QueueFailureStage {
+    None,
+    Separation,
+    Midi,
 };
 
 struct QueueJob {
@@ -24,8 +32,11 @@ struct QueueJob {
     QString languageName;
     double tempo = 120.0;
     QueueJobStatus status = QueueJobStatus::Pending;
+    QueueFailureStage failureStage = QueueFailureStage::None;
     int progress = 0;
     QString error;
+    QString vocalsPath;
+    QString instrumentalPath;
 };
 
 class InferenceQueueController final : public QObject {
@@ -34,6 +45,7 @@ class InferenceQueueController final : public QObject {
 public:
     using ProgressCallback = std::function<void(int)>;
     using Processor = std::function<bool(const QueueJob &, const ProgressCallback &, QString &)>;
+    using SeparationProcessor = std::function<bool(QueueJob &, const ProgressCallback &, QString &)>;
 
     explicit InferenceQueueController(QObject *parent = nullptr);
     ~InferenceQueueController() override;
@@ -49,6 +61,7 @@ public:
     void resetFailedJobs();
 
     bool start(Processor processor);
+    bool startPipeline(bool separationEnabled, SeparationProcessor separationProcessor, Processor midiProcessor);
     void stopAfterCurrent();
 
 signals:
@@ -59,7 +72,9 @@ signals:
 
 private:
     int indexOf(quint64 id) const;
-    void updateJobState(quint64 id, QueueJobStatus status, int progress, const QString &error);
+    void updateJobState(quint64 id, QueueJobStatus status, int progress, const QString &error,
+                        QueueFailureStage failureStage = QueueFailureStage::None);
+    void updateJobSeparation(quint64 id, bool success, const QueueJob &job, const QString &error);
     void updateJobProgress(quint64 id, int progress);
 
     QVector<QueueJob> m_jobs;

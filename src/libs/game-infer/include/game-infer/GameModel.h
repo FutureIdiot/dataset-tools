@@ -38,7 +38,7 @@ namespace Game
         bool load_model(const std::filesystem::path &modelPath, ExecutionProvider provider, int device_id,
                         std::string &msg);
         bool is_open() const;
-        static void terminate();
+        void terminate();
 
         bool forward(const std::vector<float> &waveform_data, std::vector<bool> &boundaries,
                      std::vector<float> &durations, std::vector<float> &presence, std::vector<float> &scores,

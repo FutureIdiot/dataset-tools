@@ -26,6 +26,61 @@ qt_add_translations(${PROJECT_NAME}
         RESOURCE_PREFIX /i18n
 )
 
+set(SEPARATOR_WORKER_FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/workers/separator_worker.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/workers/pyproject.toml
+        ${CMAKE_CURRENT_SOURCE_DIR}/workers/uv.lock
+        ${CMAKE_CURRENT_SOURCE_DIR}/workers/.python-version
+)
+target_sources(${PROJECT_NAME} PRIVATE ${SEPARATOR_WORKER_FILES})
+set(SEPARATOR_WORKER_OUTPUT_DIR "$<TARGET_FILE_DIR:${PROJECT_NAME}>/separator-worker")
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${SEPARATOR_WORKER_OUTPUT_DIR}
+)
+foreach (_worker_file IN LISTS SEPARATOR_WORKER_FILES)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_worker_file}"
+            "${SEPARATOR_WORKER_OUTPUT_DIR}"
+    )
+endforeach ()
+
+option(GAMEINFER_REQUIRE_SEPARATOR_UV "Fail configuration when the separator runtime launcher is unavailable" OFF)
+find_program(GAMEINFER_SEPARATOR_UV_EXECUTABLE NAMES uv
+        DOC "uv executable bundled with GameInfer for the managed separator runtime")
+if (GAMEINFER_SEPARATOR_UV_EXECUTABLE)
+    get_filename_component(GAMEINFER_SEPARATOR_UV_REALPATH
+            "${GAMEINFER_SEPARATOR_UV_EXECUTABLE}" REALPATH)
+    set(SEPARATOR_RUNTIME_OUTPUT_DIR "$<TARGET_FILE_DIR:${PROJECT_NAME}>/separator-runtime")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${SEPARATOR_RUNTIME_OUTPUT_DIR}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${GAMEINFER_SEPARATOR_UV_REALPATH}"
+            "${SEPARATOR_RUNTIME_OUTPUT_DIR}/uv${CMAKE_EXECUTABLE_SUFFIX}"
+    )
+else ()
+    if (GAMEINFER_REQUIRE_SEPARATOR_UV)
+        message(FATAL_ERROR "GameInfer separator runtime: uv is required but was not found")
+    endif ()
+    message(WARNING "GameInfer separator runtime: uv was not found and will not be bundled")
+endif ()
+
+if (APPLE)
+    install(FILES ${SEPARATOR_WORKER_FILES} DESTINATION GameInfer.app/Contents/MacOS/separator-worker)
+    if (GAMEINFER_SEPARATOR_UV_EXECUTABLE)
+        install(PROGRAMS "${GAMEINFER_SEPARATOR_UV_REALPATH}"
+                DESTINATION GameInfer.app/Contents/MacOS/separator-runtime
+                RENAME uv)
+    endif ()
+else ()
+    install(FILES ${SEPARATOR_WORKER_FILES} DESTINATION separator-worker)
+    if (GAMEINFER_SEPARATOR_UV_EXECUTABLE)
+        install(PROGRAMS "${GAMEINFER_SEPARATOR_UV_REALPATH}"
+                DESTINATION separator-runtime
+                RENAME uv${CMAKE_EXECUTABLE_SUFFIX})
+    endif ()
+endif ()
+
 
 if (WIN32)
     include(${PROJECT_CMAKE_MODULES_DIR}/winrc.cmake)

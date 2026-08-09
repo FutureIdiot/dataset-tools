@@ -4,6 +4,14 @@
 <context>
     <name>InferenceQueueController</name>
     <message>
+        <source>Unknown separation error</source>
+        <translation>未知的分离错误</translation>
+    </message>
+    <message>
+        <source>The separation failed without an error message.</source>
+        <translation>分离失败，但未提供错误信息。</translation>
+    </message>
+    <message>
         <source>Unknown conversion error</source>
         <translation>未知的转换错误</translation>
     </message>
@@ -79,6 +87,54 @@
     <message>
         <source>Default</source>
         <translation>默认</translation>
+    </message>
+    <message>
+        <source>Source separation</source>
+        <translation>音源分离</translation>
+    </message>
+    <message>
+        <source>Separate vocals before MIDI inference</source>
+        <translation>在 MIDI 推理前分离人声</translation>
+    </message>
+    <message>
+        <source>Model cache:</source>
+        <translation>模型缓存：</translation>
+    </message>
+    <message>
+        <source>Separator model:</source>
+        <translation>分离模型：</translation>
+    </message>
+    <message>
+        <source>Refresh</source>
+        <translation>刷新</translation>
+    </message>
+    <message>
+        <source>Backend:</source>
+        <translation>后端：</translation>
+    </message>
+    <message>
+        <source>Auto</source>
+        <translation>自动</translation>
+    </message>
+    <message>
+        <source>CUDA</source>
+        <translation>CUDA</translation>
+    </message>
+    <message>
+        <source>Output stems:</source>
+        <translation>输出分轨：</translation>
+    </message>
+    <message>
+        <source>Vocals</source>
+        <translation>人声</translation>
+    </message>
+    <message>
+        <source>Vocals + Instrumental</source>
+        <translation>人声 + 伴奏</translation>
+    </message>
+    <message>
+        <source>Advanced parameters...</source>
+        <translation>高级参数...</translation>
     </message>
     <message>
         <source>Processing parameters</source>
@@ -245,6 +301,18 @@
         <translation>警告</translation>
     </message>
     <message>
+        <source>Separating</source>
+        <translation>正在分离</translation>
+    </message>
+    <message>
+        <source>Ready for MIDI</source>
+        <translation>等待生成 MIDI</translation>
+    </message>
+    <message>
+        <source>Generating MIDI</source>
+        <translation>正在生成 MIDI</translation>
+    </message>
+    <message>
         <source>The input audio file does not exist: %1</source>
         <translation>输入音频文件不存在：%1</translation>
     </message>
@@ -262,7 +330,7 @@
     </message>
     <message>
         <source>Running</source>
-        <translation>运行中</translation>
+        <translation type="vanished">运行中</translation>
     </message>
     <message>
         <source>Completed</source>
@@ -275,6 +343,10 @@
     <message>
         <source>%1%</source>
         <translation>%1%</translation>
+    </message>
+    <message>
+        <source>Vocals: %1</source>
+        <translation>人声：%1</translation>
     </message>
     <message>
         <source>Total: %1 · Completed: %2 · Failed: %3</source>
@@ -293,8 +365,20 @@
         <translation>多个任务使用了相同的输出 MIDI 路径：%1</translation>
     </message>
     <message>
+        <source>Multiple tasks use the same separated audio path: %1</source>
+        <translation>多个任务使用了相同的分离音频路径：%1</translation>
+    </message>
+    <message>
         <source>There are no pending tasks to run.</source>
         <translation>没有等待运行的任务。</translation>
+    </message>
+    <message>
+        <source>The separator worker script does not exist: %1</source>
+        <translation>分离 worker 脚本不存在：%1</translation>
+    </message>
+    <message>
+        <source>Select a separator model cache and model.</source>
+        <translation>请选择分离模型缓存目录和模型。</translation>
     </message>
     <message>
         <source>
@@ -329,6 +413,10 @@ Overwrite them?</source>
         <translation>选择模型目录</translation>
     </message>
     <message>
+        <source>Select separator model cache</source>
+        <translation>选择分离模型缓存目录</translation>
+    </message>
+    <message>
         <source>Failed to load the model: %1</source>
         <translation>模型加载失败：%1</translation>
     </message>
@@ -358,6 +446,125 @@ Overwrite them?</source>
     <message>
         <source>English</source>
         <translation>English</translation>
+    </message>
+</context>
+<context>
+    <name>SeparatorSettingsDialog</name>
+    <message>
+        <source>Advanced separator parameters</source>
+        <translation>分离器高级参数</translation>
+    </message>
+    <message>
+        <source>Common</source>
+        <translation>通用</translation>
+    </message>
+    <message>
+        <source>Disabled</source>
+        <translation>禁用</translation>
+    </message>
+    <message>
+        <source>Normalization:</source>
+        <translation>归一化：</translation>
+    </message>
+    <message>
+        <source>Amplification:</source>
+        <translation>增益：</translation>
+    </message>
+    <message>
+        <source>Output sample rate:</source>
+        <translation>输出采样率：</translation>
+    </message>
+    <message>
+        <source>Long-audio chunk duration (seconds):</source>
+        <translation>长音频分块时长（秒）：</translation>
+    </message>
+    <message>
+        <source>Use SoundFile for output:</source>
+        <translation>使用 SoundFile 输出：</translation>
+    </message>
+    <message>
+        <source>Use autocast (CUDA only):</source>
+        <translation>使用自动混合精度（仅 CUDA）：</translation>
+    </message>
+    <message>
+        <source>MDXC / RoFormer</source>
+        <translation>MDXC / RoFormer</translation>
+    </message>
+    <message>
+        <source>Segment size:</source>
+        <translation>分段大小：</translation>
+    </message>
+    <message>
+        <source>Overlap:</source>
+        <translation>重叠：</translation>
+    </message>
+    <message>
+        <source>Batch size:</source>
+        <translation>批大小：</translation>
+    </message>
+    <message>
+        <source>Override model segment size:</source>
+        <translation>覆盖模型分段大小：</translation>
+    </message>
+    <message>
+        <source>Pitch shift (semitones):</source>
+        <translation>移调（半音）：</translation>
+    </message>
+    <message>
+        <source>MDX</source>
+        <translation>MDX</translation>
+    </message>
+    <message>
+        <source>Hop length:</source>
+        <translation>跳跃长度：</translation>
+    </message>
+    <message>
+        <source>Enable denoise:</source>
+        <translation>启用降噪：</translation>
+    </message>
+    <message>
+        <source>VR</source>
+        <translation>VR</translation>
+    </message>
+    <message>
+        <source>Window size:</source>
+        <translation>窗口大小：</translation>
+    </message>
+    <message>
+        <source>Aggression:</source>
+        <translation>分离强度：</translation>
+    </message>
+    <message>
+        <source>Enable TTA:</source>
+        <translation>启用 TTA：</translation>
+    </message>
+    <message>
+        <source>Enable post-process:</source>
+        <translation>启用后处理：</translation>
+    </message>
+    <message>
+        <source>Post-process threshold:</source>
+        <translation>后处理阈值：</translation>
+    </message>
+    <message>
+        <source>High-end process:</source>
+        <translation>高频处理：</translation>
+    </message>
+    <message>
+        <source>Demucs</source>
+        <translation>Demucs</translation>
+    </message>
+    <message>
+        <source>Model default</source>
+        <translation>模型默认值</translation>
+    </message>
+    <message>
+        <source>Shifts:</source>
+        <translation>移位次数：</translation>
+    </message>
+    <message>
+        <source>Segment-wise processing:</source>
+        <translation>分段处理：</translation>
     </message>
 </context>
 </TS>

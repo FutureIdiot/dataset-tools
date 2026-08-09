@@ -229,7 +229,13 @@ namespace Game
 
     bool GameModel::is_open() const { return sessDur2bd && sessEncoder && sessEstimator && sessSegmenter; }
 
-    void GameModel::terminate() {}
+    void GameModel::terminate() {
+        sessEstimator.reset();
+        sessDur2bd.reset();
+        sessSegmenter.reset();
+        sessEncoder.reset();
+        modelDir.clear();
+    }
 
     bool GameModel::forward(const std::vector<float> &waveform_data, std::vector<bool> &boundaries,
                             std::vector<float> &durations, std::vector<float> &presence, std::vector<float> &scores,

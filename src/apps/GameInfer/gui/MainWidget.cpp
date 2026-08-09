@@ -10,6 +10,7 @@
 #include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QDirIterator>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -29,10 +30,12 @@
 #include <QUrl>
 #include <fstream>
 #include <iostream>
+#include <memory>
 
 #include <wolf-midi/MidiFile.h>
 
 #include "utils/DmlGpuUtils.h"
+#include "separator/SeparatorSettingsDialog.h"
 
 static QString replaceFileExtension(const QString &filePath, const QString &newExt);
 
@@ -100,6 +103,7 @@ MainWidget::MainWidget(QSettings *settings, QWidget *parent)
 
     auto *mainLayout = new QVBoxLayout(this);
 
+    setupSeparatorGroup();
     setupModelGroup();
     setupProcessingGroup();
     setupActionButtons();
@@ -237,6 +241,30 @@ void MainWidget::retranslateUi() {
         }
     }
 
+    m_separatorGroup->setTitle(tr("Source separation"));
+    m_separatorEnabledCheck->setText(tr("Separate vocals before MIDI inference"));
+    m_separatorModelDirectoryLabel->setText(tr("Model cache:"));
+    m_separatorBrowseDirectoryButton->setText(tr("Browse..."));
+    m_separatorModelLabel->setText(tr("Separator model:"));
+    m_separatorRefreshModelsButton->setText(tr("Refresh"));
+    m_separatorBackendLabel->setText(tr("Backend:"));
+    for (int index = 0; index < m_separatorBackendCombo->count(); ++index) {
+        const QString value = m_separatorBackendCombo->itemData(index).toString();
+        const QString label = value == QStringLiteral("auto") ? tr("Auto")
+                              : value == QStringLiteral("cpu") ? tr("CPU")
+                              : value == QStringLiteral("cuda") ? tr("CUDA")
+                                                                 : tr("DirectML");
+        m_separatorBackendCombo->setItemText(index, label);
+    }
+    m_separatorOutputLabel->setText(tr("Output stems:"));
+    for (int index = 0; index < m_separatorOutputCombo->count(); ++index) {
+        m_separatorOutputCombo->setItemText(
+            index, m_separatorOutputCombo->itemData(index).toString() == QStringLiteral("vocals")
+                       ? tr("Vocals")
+                       : tr("Vocals + Instrumental"));
+    }
+    m_separatorAdvancedButton->setText(tr("Advanced parameters..."));
+
     m_processingGroup->setTitle(tr("Processing parameters"));
     m_segThresholdLabel->setText(tr("Segmentation threshold (--seg-threshold):"));
     m_segRadiusLabel->setText(tr("Segmentation radius (frames, ms):"));
@@ -286,6 +314,89 @@ void MainWidget::retranslateUi() {
     }
     setModelLoadingStatus(m_modelStatus);
     refreshQueueTable();
+}
+
+void MainWidget::setupSeparatorGroup() {
+    m_separatorGroup = new QGroupBox(tr("Source separation"));
+    auto *layout = new QGridLayout(m_separatorGroup);
+
+    m_separatorEnabledCheck = new QCheckBox(tr("Separate vocals before MIDI inference"), m_separatorGroup);
+    m_separatorEnabledCheck->setChecked(m_settings->value("Separator/enabled", true).toBool());
+    layout->addWidget(m_separatorEnabledCheck, 0, 0, 1, 5);
+
+    m_separatorModelDirectoryLabel = new QLabel(tr("Model cache:"), m_separatorGroup);
+    m_separatorModelDirectoryEdit = new QLineEdit(m_separatorGroup);
+    m_separatorModelDirectoryEdit->setText(
+        m_settings->value("Separator/modelDirectory", QApplication::applicationDirPath() + "/model/separator")
+            .toString());
+    m_separatorBrowseDirectoryButton = new QPushButton(tr("Browse..."), m_separatorGroup);
+    layout->addWidget(m_separatorModelDirectoryLabel, 1, 0);
+    layout->addWidget(m_separatorModelDirectoryEdit, 1, 1, 1, 3);
+    layout->addWidget(m_separatorBrowseDirectoryButton, 1, 4);
+
+    m_separatorModelLabel = new QLabel(tr("Separator model:"), m_separatorGroup);
+    m_separatorModelCombo = new QComboBox(m_separatorGroup);
+    m_separatorModelCombo->setEditable(true);
+    m_separatorRefreshModelsButton = new QPushButton(tr("Refresh"), m_separatorGroup);
+    layout->addWidget(m_separatorModelLabel, 2, 0);
+    layout->addWidget(m_separatorModelCombo, 2, 1, 1, 3);
+    layout->addWidget(m_separatorRefreshModelsButton, 2, 4);
+
+    m_separatorBackendLabel = new QLabel(tr("Backend:"), m_separatorGroup);
+    m_separatorBackendCombo = new QComboBox(m_separatorGroup);
+    m_separatorBackendCombo->addItem(tr("Auto"), QStringLiteral("auto"));
+    m_separatorBackendCombo->addItem(tr("CPU"), QStringLiteral("cpu"));
+    m_separatorBackendCombo->addItem(tr("CUDA"), QStringLiteral("cuda"));
+#ifdef Q_OS_WIN
+    m_separatorBackendCombo->addItem(tr("DirectML"), QStringLiteral("directml"));
+#endif
+    const int savedBackend = m_separatorBackendCombo->findData(
+        m_settings->value("Separator/backend", QStringLiteral("auto")).toString());
+    m_separatorBackendCombo->setCurrentIndex(savedBackend >= 0 ? savedBackend : 0);
+
+    m_separatorOutputLabel = new QLabel(tr("Output stems:"), m_separatorGroup);
+    m_separatorOutputCombo = new QComboBox(m_separatorGroup);
+    m_separatorOutputCombo->addItem(tr("Vocals"), QStringLiteral("vocals"));
+    m_separatorOutputCombo->addItem(tr("Vocals + Instrumental"), QStringLiteral("vocals_instrumental"));
+    const int savedOutput = m_separatorOutputCombo->findData(
+        m_settings->value("Separator/outputMode", QStringLiteral("vocals")).toString());
+    m_separatorOutputCombo->setCurrentIndex(savedOutput >= 0 ? savedOutput : 0);
+    m_separatorAdvancedButton = new QPushButton(tr("Advanced parameters..."), m_separatorGroup);
+    layout->addWidget(m_separatorBackendLabel, 3, 0);
+    layout->addWidget(m_separatorBackendCombo, 3, 1);
+    layout->addWidget(m_separatorOutputLabel, 3, 2);
+    layout->addWidget(m_separatorOutputCombo, 3, 3);
+    layout->addWidget(m_separatorAdvancedButton, 3, 4);
+    layout->setColumnStretch(1, 1);
+    layout->setColumnStretch(3, 1);
+
+    connect(m_separatorEnabledCheck, &QCheckBox::toggled, this, [this](const bool enabled) {
+        m_settings->setValue("Separator/enabled", enabled);
+        setSeparatorControlsEnabled(!m_queueController->isRunning());
+    });
+    connect(m_separatorModelDirectoryEdit, &QLineEdit::textChanged, this, [this](const QString &value) {
+        m_settings->setValue("Separator/modelDirectory", value);
+    });
+    connect(m_separatorModelCombo->lineEdit(), &QLineEdit::textChanged, this,
+            [this](const QString &value) { m_settings->setValue("Separator/modelFilename", value); });
+    connect(m_separatorBackendCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+        m_settings->setValue("Separator/backend", m_separatorBackendCombo->currentData().toString());
+    });
+    connect(m_separatorOutputCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+        m_settings->setValue("Separator/outputMode", m_separatorOutputCombo->currentData().toString());
+    });
+    connect(m_separatorBrowseDirectoryButton, &QPushButton::clicked,
+            this, &MainWidget::browseSeparatorModelDirectory);
+    connect(m_separatorRefreshModelsButton, &QPushButton::clicked, this, &MainWidget::refreshSeparatorModels);
+    connect(m_separatorAdvancedButton, &QPushButton::clicked, this, &MainWidget::showAdvancedSeparatorSettings);
+
+    SeparatorSettingsDialog settingsDialog(m_settings, this);
+    m_separatorParameters = settingsDialog.parameters();
+    refreshSeparatorModels();
+    setSeparatorControlsEnabled(true);
+
+    auto *mainLayout = qobject_cast<QVBoxLayout *>(this->layout());
+    mainLayout->addWidget(m_separatorGroup);
 }
 
 void MainWidget::setupModelGroup() {
@@ -761,8 +872,17 @@ void MainWidget::refreshQueueTable() {
             status = tr("Pending");
             ++editable;
             break;
+        case QueueJobStatus::Separating:
+            status = tr("Separating");
+            ++running;
+            m_progressBar->setValue(job.progress);
+            break;
+        case QueueJobStatus::Separated:
+            status = tr("Ready for MIDI");
+            ++editable;
+            break;
         case QueueJobStatus::Running:
-            status = tr("Running");
+            status = tr("Generating MIDI");
             ++running;
             m_progressBar->setValue(job.progress);
             break;
@@ -846,7 +966,12 @@ void MainWidget::refreshQueueTable() {
         });
         m_queueTable->setCellWidget(row, QueueTempoColumn, tempoSpin);
 
-        const QString details = job.status == QueueJobStatus::Running ? tr("%1%").arg(job.progress) : job.error;
+        QString details = (job.status == QueueJobStatus::Running || job.status == QueueJobStatus::Separating)
+                              ? tr("%1%").arg(job.progress)
+                              : job.error;
+        if (details.isEmpty() && job.status == QueueJobStatus::Separated) {
+            details = tr("Vocals: %1").arg(job.vocalsPath);
+        }
         auto *detailsItem = createQueueItem(details, false);
         detailsItem->setToolTip(details);
         m_queueTable->setItem(row, QueueDetailsColumn, detailsItem);
@@ -871,17 +996,38 @@ void MainWidget::refreshQueueTable() {
 
 bool MainWidget::validateQueueBeforeStart() {
     bool hasPending = false;
+    bool needsSeparation = false;
     QSet<QString> outputPaths;
     QStringList existingOutputs;
+    const bool separationRequested = m_separatorEnabledCheck->isChecked();
+    const bool keepInstrumental =
+        m_separatorOutputCombo->currentData().toString() == QStringLiteral("vocals_instrumental");
+    const auto registerOutputPath = [&](const QString &path, const QString &duplicateMessage) {
+        QString normalized = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+#ifdef Q_OS_WIN
+        normalized = normalized.toLower();
+#endif
+        if (outputPaths.contains(normalized)) {
+            QMessageBox::critical(this, tr("Queue validation"), duplicateMessage.arg(path));
+            return false;
+        }
+        outputPaths.insert(normalized);
+        if (QFileInfo::exists(path)) {
+            existingOutputs.push_back(path);
+        }
+        return true;
+    };
 
     for (const auto &job : m_queueController->jobs()) {
-        if (job.status != QueueJobStatus::Pending) {
+        if (job.status != QueueJobStatus::Pending && job.status != QueueJobStatus::Separated) {
             continue;
         }
         hasPending = true;
-        if (!QFileInfo(job.inputPath).isFile()) {
+        needsSeparation = needsSeparation || (separationRequested && job.status == QueueJobStatus::Pending);
+        const QString inferenceInput = job.status == QueueJobStatus::Separated ? job.vocalsPath : job.inputPath;
+        if (!QFileInfo(inferenceInput).isFile()) {
             QMessageBox::critical(this, tr("Queue validation"),
-                                  tr("The input audio file does not exist: %1").arg(job.inputPath));
+                                  tr("The input audio file does not exist: %1").arg(inferenceInput));
             return false;
         }
         const QFileInfo outputInfo(job.outputPath);
@@ -891,24 +1037,39 @@ bool MainWidget::validateQueueBeforeStart() {
             return false;
         }
 
-        QString normalizedOutput = QDir::cleanPath(QFileInfo(job.outputPath).absoluteFilePath());
-#ifdef Q_OS_WIN
-        normalizedOutput = normalizedOutput.toLower();
-#endif
-        if (outputPaths.contains(normalizedOutput)) {
-            QMessageBox::critical(this, tr("Queue validation"),
-                                  tr("Multiple tasks use the same output MIDI path: %1").arg(job.outputPath));
+        if (!registerOutputPath(job.outputPath, tr("Multiple tasks use the same output MIDI path: %1"))) {
             return false;
         }
-        outputPaths.insert(normalizedOutput);
-        if (QFileInfo::exists(job.outputPath)) {
-            existingOutputs.push_back(job.outputPath);
+        if (separationRequested && job.status == QueueJobStatus::Pending) {
+            const QString basePath = outputInfo.absolutePath() + QDir::separator() + outputInfo.completeBaseName();
+            if (!registerOutputPath(basePath + QStringLiteral("_vocals.wav"),
+                                    tr("Multiple tasks use the same separated audio path: %1"))) {
+                return false;
+            }
+            if (keepInstrumental &&
+                !registerOutputPath(basePath + QStringLiteral("_instrumental.wav"),
+                                    tr("Multiple tasks use the same separated audio path: %1"))) {
+                return false;
+            }
         }
     }
 
     if (!hasPending) {
         QMessageBox::information(this, tr("Queue"), tr("There are no pending tasks to run."));
         return false;
+    }
+    if (needsSeparation) {
+        const SeparatorWorkerConfiguration separator = currentSeparatorConfiguration();
+        if (!QFileInfo(separator.scriptPath).isFile()) {
+            QMessageBox::critical(this, tr("Queue validation"),
+                                  tr("The separator worker script does not exist: %1").arg(separator.scriptPath));
+            return false;
+        }
+        if (separator.modelFileDir.isEmpty() || separator.modelFilename.isEmpty()) {
+            QMessageBox::critical(this, tr("Queue validation"),
+                                  tr("Select a separator model cache and model."));
+            return false;
+        }
     }
     if (!existingOutputs.isEmpty()) {
         const QString displayed = existingOutputs.mid(0, 20).join("\n");
@@ -932,17 +1093,64 @@ void MainWidget::startQueue() {
 
     const ModelSelection model = currentModelSelection();
     const ProcessingParameters sharedParameters = currentProcessingParameters();
+    const bool separationEnabled = m_separatorEnabledCheck->isChecked();
+    const SeparatorWorkerConfiguration separatorConfiguration = currentSeparatorConfiguration();
     struct QueueRuntimeState {
         bool modelAttempted = false;
         bool modelReady = false;
         QString modelError;
     };
     const auto runtime = std::make_shared<QueueRuntimeState>();
+    struct SeparatorRuntimeState {
+        bool startAttempted = false;
+        bool ready = false;
+        bool released = false;
+        QString startError;
+        std::unique_ptr<SeparatorWorkerClient> client;
+    };
+    const auto separatorRuntime = std::make_shared<SeparatorRuntimeState>();
 
-    const bool started = m_queueController->start(
-        [this, model, sharedParameters, runtime](const QueueJob &job,
-                                                 const InferenceQueueController::ProgressCallback &progress,
-                                                 QString &error) {
+    const bool started = m_queueController->startPipeline(
+        separationEnabled,
+        [this, separatorConfiguration, separatorRuntime](QueueJob &job,
+                                                         const InferenceQueueController::ProgressCallback &progress,
+                                                         QString &error) {
+            const QFileInfo midiOutput(job.outputPath);
+            if (!separatorRuntime->startAttempted) {
+                separatorRuntime->startAttempted = true;
+                m_game->terminate();
+                m_loadedModelSelection.reset();
+                separatorRuntime->client = std::make_unique<SeparatorWorkerClient>();
+                separatorRuntime->ready = separatorRuntime->client->start(
+                    separatorConfiguration, midiOutput.absolutePath(), separatorRuntime->startError);
+            }
+            if (!separatorRuntime->ready) {
+                error = separatorRuntime->startError;
+                return false;
+            }
+
+            SeparatorWorkerOutput output;
+            if (!separatorRuntime->client->separate(job.inputPath, midiOutput.absolutePath(),
+                                                     midiOutput.completeBaseName(), output, error)) {
+                return false;
+            }
+            job.vocalsPath = output.vocalsPath;
+            job.instrumentalPath = output.instrumentalPath;
+            if (progress) {
+                progress(100);
+            }
+            return true;
+        },
+        [this, model, sharedParameters, runtime, separatorRuntime](const QueueJob &job,
+                                                                  const InferenceQueueController::ProgressCallback &progress,
+                                                                  QString &error) {
+            if (!separatorRuntime->released) {
+                separatorRuntime->released = true;
+                if (separatorRuntime->client) {
+                    separatorRuntime->client->stop();
+                    separatorRuntime->client.reset();
+                }
+            }
             if (!runtime->modelAttempted) {
                 runtime->modelAttempted = true;
                 const bool modelMatches = m_loadedModelSelection && m_loadedModelSelection->matches(model);
@@ -968,8 +1176,9 @@ void MainWidget::startQueue() {
 
             std::vector<Game::GameMidi> midis;
             std::string message;
+            const QString inferenceInput = !job.vocalsPath.isEmpty() ? job.vocalsPath : job.inputPath;
             const bool success = m_game->get_midi(
-                std::filesystem::path(job.inputPath.toLocal8Bit().toStdString()), midis, tempo, message,
+                std::filesystem::path(inferenceInput.toLocal8Bit().toStdString()), midis, tempo, message,
                 progress, max_audio_seg_length);
             if (!success) {
                 error = QString::fromLocal8Bit(message);
@@ -1018,6 +1227,55 @@ void MainWidget::browseModelPath() {
         // Auto-load config when model path changes
         loadLanguagesFromConfig(std::filesystem::path(dir.toStdWString()));
         updateTimeStepInfo(std::filesystem::path(dir.toStdWString()));
+    }
+}
+
+void MainWidget::browseSeparatorModelDirectory() {
+    const QString directory = QFileDialog::getExistingDirectory(
+        this, tr("Select separator model cache"), m_separatorModelDirectoryEdit->text(),
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+    if (directory.isEmpty()) {
+        return;
+    }
+    m_separatorModelDirectoryEdit->setText(directory);
+    refreshSeparatorModels();
+}
+
+void MainWidget::refreshSeparatorModels() {
+    const QString selected = m_separatorModelCombo->currentText().trimmed().isEmpty()
+                                 ? m_settings->value("Separator/modelFilename",
+                                                     QStringLiteral("vocals_mel_band_roformer.ckpt"))
+                                       .toString()
+                                 : m_separatorModelCombo->currentText().trimmed();
+    QSet<QString> models;
+    models.insert(QStringLiteral("vocals_mel_band_roformer.ckpt"));
+
+    const QDir modelDirectory(m_separatorModelDirectoryEdit->text().trimmed());
+    if (modelDirectory.exists()) {
+        QDirIterator iterator(modelDirectory.absolutePath(),
+                              {QStringLiteral("*.ckpt"), QStringLiteral("*.onnx"), QStringLiteral("*.pth"),
+                               QStringLiteral("*.yaml"), QStringLiteral("*.yml")},
+                              QDir::Files, QDirIterator::Subdirectories);
+        while (iterator.hasNext()) {
+            iterator.next();
+            models.insert(iterator.fileInfo().fileName());
+        }
+    }
+    models.insert(selected);
+
+    const QSignalBlocker blocker(m_separatorModelCombo);
+    m_separatorModelCombo->clear();
+    QStringList sortedModels = models.values();
+    sortedModels.sort(Qt::CaseInsensitive);
+    m_separatorModelCombo->addItems(sortedModels);
+    m_separatorModelCombo->setCurrentText(selected);
+    m_settings->setValue("Separator/modelFilename", selected);
+}
+
+void MainWidget::showAdvancedSeparatorSettings() {
+    SeparatorSettingsDialog dialog(m_settings, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        m_separatorParameters = dialog.parameters();
     }
 }
 
@@ -1196,6 +1454,7 @@ bool MainWidget::updateParameterValues(const ProcessingParameters &parameters) c
 }
 
 void MainWidget::setControlsEnabled(const bool enabled) const {
+    setSeparatorControlsEnabled(enabled);
     m_modelPathEdit->setEnabled(enabled);
     m_browseModelBtn->setEnabled(enabled);
     m_providerCombo->setEnabled(enabled);
@@ -1215,6 +1474,34 @@ void MainWidget::setControlsEnabled(const bool enabled) const {
     m_retryFailedButton->setEnabled(enabled);
     m_startQueueButton->setEnabled(enabled && !m_queueController->jobs().isEmpty());
     m_stopQueueButton->setEnabled(false);
+}
+
+void MainWidget::setSeparatorControlsEnabled(const bool enabled) const {
+    m_separatorEnabledCheck->setEnabled(enabled);
+    const bool configurationEnabled = enabled && m_separatorEnabledCheck->isChecked();
+    m_separatorModelDirectoryEdit->setEnabled(configurationEnabled);
+    m_separatorBrowseDirectoryButton->setEnabled(configurationEnabled);
+    m_separatorModelCombo->setEnabled(configurationEnabled);
+    m_separatorRefreshModelsButton->setEnabled(configurationEnabled);
+    m_separatorBackendCombo->setEnabled(configurationEnabled);
+    m_separatorOutputCombo->setEnabled(configurationEnabled);
+    m_separatorAdvancedButton->setEnabled(configurationEnabled);
+}
+
+SeparatorWorkerConfiguration MainWidget::currentSeparatorConfiguration() const {
+    return {
+        separatorWorkerScriptPath(),
+        m_separatorModelDirectoryEdit->text().trimmed(),
+        m_separatorModelCombo->currentText().trimmed(),
+        m_separatorBackendCombo->currentData().toString(),
+        m_separatorOutputCombo->currentData().toString(),
+        m_separatorParameters,
+    };
+}
+
+QString MainWidget::separatorWorkerScriptPath() const {
+    return QDir(QApplication::applicationDirPath())
+        .filePath(QStringLiteral("separator-worker/separator_worker.py"));
 }
 
 void MainWidget::resetToDefaults() const {
