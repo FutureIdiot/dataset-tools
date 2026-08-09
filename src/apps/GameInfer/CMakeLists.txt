@@ -5,6 +5,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 file(GLOB_RECURSE _src CONFIGURE_DEPENDS *.h *.cpp)
+list(FILTER _src EXCLUDE REGEX "/workers/")
 add_executable(${PROJECT_NAME} ${_src})
 
 find_package(SndFile CONFIG REQUIRED)

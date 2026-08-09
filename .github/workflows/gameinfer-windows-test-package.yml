@@ -41,6 +41,8 @@ jobs:
 
       - name: Validate managed separator environment
         shell: pwsh
+        env:
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/gameinfer-separator-validation
         run: |
           uv run --locked --project src/apps/GameInfer/workers python -c `
             "import importlib.util, onnxruntime; from audio_separator.separator import Separator; assert importlib.util.find_spec('torch_directml') is not None; print(onnxruntime.get_available_providers())"
