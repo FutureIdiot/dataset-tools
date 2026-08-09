@@ -36,6 +36,17 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: "0.11.32"
+          enable-cache: true
+          cache-dependency-glob: src/apps/GameInfer/workers/uv.lock
+
+      - name: Validate managed separator environment
+        shell: pwsh
+        run: |
+          uv run --locked --project src/apps/GameInfer/workers python -c `
+            "import importlib.util, onnxruntime; from audio_separator.separator import Separator; assert importlib.util.find_spec('torch_directml') is not None; print(onnxruntime.get_available_providers())"
+          if ($LASTEXITCODE -ne 0) {
+            throw "separator dependency validation failed with exit code $LASTEXITCODE"
+          }
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
