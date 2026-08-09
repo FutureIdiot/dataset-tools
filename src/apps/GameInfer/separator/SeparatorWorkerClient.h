@@ -5,6 +5,13 @@
 #include <QProcess>
 #include <QString>
 
+#include <functional>
+
+enum class SeparatorWorkerStage {
+    PreparingRuntime,
+    LoadingModel,
+};
+
 struct SeparatorWorkerConfiguration {
     QString scriptPath;
     QString modelFileDir;
@@ -21,6 +28,8 @@ struct SeparatorWorkerOutput {
 
 class SeparatorWorkerClient final {
 public:
+    using StageCallback = std::function<void(SeparatorWorkerStage)>;
+
     SeparatorWorkerClient();
     ~SeparatorWorkerClient();
 
@@ -28,7 +37,7 @@ public:
     SeparatorWorkerClient &operator=(const SeparatorWorkerClient &) = delete;
 
     bool start(const SeparatorWorkerConfiguration &configuration, const QString &initialOutputDirectory,
-               QString &error);
+               QString &error, const StageCallback &stageCallback = {});
     bool separate(const QString &inputPath, const QString &outputDirectory, const QString &outputBasename,
                   SeparatorWorkerOutput &output, QString &error);
     void stop();

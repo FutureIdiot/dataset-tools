@@ -38,7 +38,11 @@ SeparatorWorkerClient::SeparatorWorkerClient() { m_process.setProcessChannelMode
 SeparatorWorkerClient::~SeparatorWorkerClient() { stop(); }
 
 bool SeparatorWorkerClient::start(const SeparatorWorkerConfiguration &configuration,
-                                  const QString &initialOutputDirectory, QString &error) {
+                                  const QString &initialOutputDirectory, QString &error,
+                                  const StageCallback &stageCallback) {
+    if (stageCallback) {
+        stageCallback(SeparatorWorkerStage::PreparingRuntime);
+    }
     if (isRunning()) {
         error = QStringLiteral("separator worker is already running");
         return false;
@@ -153,6 +157,9 @@ bool SeparatorWorkerClient::start(const SeparatorWorkerConfiguration &configurat
         return false;
     }
 
+    if (stageCallback) {
+        stageCallback(SeparatorWorkerStage::LoadingModel);
+    }
     QJsonObject parameters = configuration.parameters;
     parameters.insert(QStringLiteral("use_directml"), configuration.backend == QStringLiteral("directml"));
     QJsonObject loadRequest{

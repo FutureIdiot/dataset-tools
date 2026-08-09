@@ -41,6 +41,9 @@ static QString replaceFileExtension(const QString &filePath, const QString &newE
 
 namespace
 {
+    const QString DefaultSeparatorModel = QStringLiteral("Kim_Vocal_2.onnx");
+    const QString RoformerSeparatorModel = QStringLiteral("vocals_mel_band_roformer.ckpt");
+
     enum QueueColumn {
         QueueNumberColumn = 0,
         QueueStatusColumn,
@@ -131,6 +134,7 @@ MainWidget::MainWidget(QSettings *settings, QWidget *parent)
         }
     });
     connect(m_queueController, &InferenceQueueController::queueFinished, this, [this](const bool stopped) {
+        setRuntimeStatus(stopped ? tr("Queue stopped.") : tr("Queue finished."), false);
         QMessageBox::information(this, tr("Queue"),
                                  stopped ? tr("The queue stopped after the current task.")
                                          : tr("The queue has finished."));
@@ -241,6 +245,7 @@ void MainWidget::retranslateUi() {
     m_separatorModelLabel->setText(tr("Separator model:"));
     m_separatorRefreshModelsButton->setText(tr("Refresh"));
     m_separatorGpuCheck->setText(tr("Use GPU"));
+    updateSeparatorModelHint();
     m_separatorOutputLabel->setText(tr("Output stems:"));
     for (int index = 0; index < m_separatorOutputCombo->count(); ++index) {
         m_separatorOutputCombo->setItemText(
@@ -326,6 +331,10 @@ void MainWidget::setupSeparatorGroup() {
     layout->addWidget(m_separatorModelLabel, 2, 0);
     layout->addWidget(m_separatorModelCombo, 2, 1, 1, 3);
     layout->addWidget(m_separatorRefreshModelsButton, 2, 4);
+    m_separatorModelHintLabel = new QLabel(m_separatorGroup);
+    m_separatorModelHintLabel->setWordWrap(true);
+    m_separatorModelHintLabel->setStyleSheet(QStringLiteral("QLabel { color: gray; }"));
+    layout->addWidget(m_separatorModelHintLabel, 3, 1, 1, 4);
 
     m_separatorGpuCheck = new QCheckBox(tr("Use GPU"), m_separatorGroup);
     const bool separatorGpuWasEnabled =
@@ -344,10 +353,10 @@ void MainWidget::setupSeparatorGroup() {
         m_settings->value("Separator/outputMode", QStringLiteral("vocals")).toString());
     m_separatorOutputCombo->setCurrentIndex(savedOutput >= 0 ? savedOutput : 0);
     m_separatorAdvancedButton = new QPushButton(tr("Advanced parameters..."), m_separatorGroup);
-    layout->addWidget(m_separatorGpuCheck, 3, 0, 1, 2);
-    layout->addWidget(m_separatorOutputLabel, 3, 2);
-    layout->addWidget(m_separatorOutputCombo, 3, 3);
-    layout->addWidget(m_separatorAdvancedButton, 3, 4);
+    layout->addWidget(m_separatorGpuCheck, 4, 0, 1, 2);
+    layout->addWidget(m_separatorOutputLabel, 4, 2);
+    layout->addWidget(m_separatorOutputCombo, 4, 3);
+    layout->addWidget(m_separatorAdvancedButton, 4, 4);
     layout->setColumnStretch(1, 1);
     layout->setColumnStretch(3, 1);
 
@@ -357,9 +366,12 @@ void MainWidget::setupSeparatorGroup() {
     });
     connect(m_separatorModelDirectoryEdit, &QLineEdit::textChanged, this, [this](const QString &value) {
         m_settings->setValue("Separator/modelDirectory", value);
+        updateSeparatorModelHint();
     });
-    connect(m_separatorModelCombo->lineEdit(), &QLineEdit::textChanged, this,
-            [this](const QString &value) { m_settings->setValue("Separator/modelFilename", value); });
+    connect(m_separatorModelCombo->lineEdit(), &QLineEdit::textChanged, this, [this](const QString &value) {
+        m_settings->setValue("Separator/modelFilename", value);
+        updateSeparatorModelHint();
+    });
     connect(m_separatorGpuCheck, &QCheckBox::toggled, this,
             [this](const bool checked) { m_settings->setValue("Separator/useGpu", checked); });
     connect(m_separatorOutputCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
@@ -655,8 +667,10 @@ void MainWidget::setupExecutionBar() {
     auto *executionLayout = new QVBoxLayout();
     auto *statusLayout = new QHBoxLayout();
     m_currentQueueJobLabel = new QLabel(tr("Current: —"));
+    m_runtimeStatusLabel = new QLabel(tr("Ready"));
     m_queueSummaryLabel = new QLabel(tr("Total: 0"));
     statusLayout->addWidget(m_currentQueueJobLabel);
+    statusLayout->addWidget(m_runtimeStatusLabel, 1);
     statusLayout->addStretch();
     statusLayout->addWidget(m_queueSummaryLabel);
     executionLayout->addLayout(statusLayout);
@@ -679,6 +693,57 @@ void MainWidget::setupExecutionBar() {
 
     auto *mainLayout = qobject_cast<QVBoxLayout *>(this->layout());
     mainLayout->addLayout(executionLayout);
+}
+
+void MainWidget::setRuntimeStatus(const QString &status, const bool busy) {
+    QMetaObject::invokeMethod(
+        this,
+        [this, status, busy] {
+            m_runtimeStatusLabel->setText(status);
+            if (busy) {
+                m_progressBar->setRange(0, 0);
+            } else if (m_progressBar->minimum() == 0 && m_progressBar->maximum() == 0) {
+                m_progressBar->setRange(0, 100);
+                m_progressBar->setValue(0);
+            }
+        },
+        Qt::QueuedConnection);
+}
+
+bool MainWidget::isSeparatorModelCached(const QString &filename) const {
+    if (filename.trimmed().isEmpty()) {
+        return false;
+    }
+    const QDir modelDirectory(m_separatorModelDirectoryEdit->text().trimmed());
+    if (!modelDirectory.exists()) {
+        return false;
+    }
+    QDirIterator iterator(modelDirectory.absolutePath(), {filename}, QDir::Files, QDirIterator::Subdirectories);
+    return iterator.hasNext();
+}
+
+void MainWidget::updateSeparatorModelHint() const {
+    if (m_separatorModelHintLabel == nullptr || m_separatorModelCombo == nullptr) {
+        return;
+    }
+    const QString filename = m_separatorModelCombo->currentText().trimmed();
+    if (filename.isEmpty() || isSeparatorModelCached(filename)) {
+        m_separatorModelHintLabel->clear();
+        m_separatorModelHintLabel->hide();
+        return;
+    }
+
+    if (filename == RoformerSeparatorModel) {
+        m_separatorModelHintLabel->setText(
+            tr("The first run will automatically download and install this model (about 913 MB)."));
+    } else if (filename == DefaultSeparatorModel) {
+        m_separatorModelHintLabel->setText(
+            tr("The first run will automatically download and install this model (about 67 MB)."));
+    } else {
+        m_separatorModelHintLabel->setText(
+            tr("The first run will automatically download and install the selected model."));
+    }
+    m_separatorModelHintLabel->show();
 }
 
 QVector<QPair<int, QString>> MainWidget::availableLanguages() const {
@@ -1054,6 +1119,9 @@ void MainWidget::startQueue() {
         std::unique_ptr<SeparatorWorkerClient> client;
     };
     const auto separatorRuntime = std::make_shared<SeparatorRuntimeState>();
+    setRuntimeStatus(separationEnabled ? tr("Preparing the separator runtime...")
+                                       : tr("Loading the GAME model..."),
+                     true);
 
     const bool started = m_queueController->startPipeline(
         separationEnabled,
@@ -1067,16 +1135,28 @@ void MainWidget::startQueue() {
                 m_loadedModelSelection.reset();
                 separatorRuntime->client = std::make_unique<SeparatorWorkerClient>();
                 separatorRuntime->ready = separatorRuntime->client->start(
-                    separatorConfiguration, midiOutput.absolutePath(), separatorRuntime->startError);
+                    separatorConfiguration, midiOutput.absolutePath(), separatorRuntime->startError,
+                    [this](const SeparatorWorkerStage stage) {
+                        if (stage == SeparatorWorkerStage::PreparingRuntime) {
+                            setRuntimeStatus(tr("Preparing the separator runtime..."), true);
+                        } else {
+                            setRuntimeStatus(
+                                tr("Loading the separator model; the first use downloads it automatically..."),
+                                true);
+                        }
+                    });
             }
             if (!separatorRuntime->ready) {
                 error = separatorRuntime->startError;
+                setRuntimeStatus(tr("Source separation failed."), false);
                 return false;
             }
 
+            setRuntimeStatus(tr("Separating vocals..."), false);
             SeparatorWorkerOutput output;
             if (!separatorRuntime->client->separate(job.inputPath, midiOutput.absolutePath(),
                                                      midiOutput.completeBaseName(), output, error)) {
+                setRuntimeStatus(tr("Source separation failed."), false);
                 return false;
             }
             job.vocalsPath = output.vocalsPath;
@@ -1098,6 +1178,7 @@ void MainWidget::startQueue() {
             }
             if (!runtime->modelAttempted) {
                 runtime->modelAttempted = true;
+                setRuntimeStatus(tr("Loading the GAME model..."), true);
                 const bool modelMatches = m_loadedModelSelection && m_loadedModelSelection->matches(model);
                 if (!m_game->is_open() || !modelMatches) {
                     std::string modelMessage;
@@ -1109,6 +1190,7 @@ void MainWidget::startQueue() {
             }
             if (!runtime->modelReady) {
                 error = runtime->modelError.isEmpty() ? tr("Failed to load the model.") : runtime->modelError;
+                setRuntimeStatus(tr("MIDI generation failed."), false);
                 return false;
             }
 
@@ -1122,11 +1204,13 @@ void MainWidget::startQueue() {
             std::vector<Game::GameMidi> midis;
             std::string message;
             const QString inferenceInput = !job.vocalsPath.isEmpty() ? job.vocalsPath : job.inputPath;
+            setRuntimeStatus(tr("Generating MIDI..."), false);
             const bool success = m_game->get_midi(
                 std::filesystem::path(inferenceInput.toLocal8Bit().toStdString()), midis, tempo, message,
                 progress, max_audio_seg_length);
             if (!success) {
                 error = QString::fromLocal8Bit(message);
+                setRuntimeStatus(tr("MIDI generation failed."), false);
                 return false;
             }
 
@@ -1136,6 +1220,7 @@ void MainWidget::startQueue() {
         });
 
     if (!started) {
+        setRuntimeStatus(tr("Ready"), false);
         QMessageBox::information(this, tr("Queue"), tr("The queue could not be started."));
     }
 }
@@ -1188,12 +1273,12 @@ void MainWidget::browseSeparatorModelDirectory() {
 
 void MainWidget::refreshSeparatorModels() {
     const QString selected = m_separatorModelCombo->currentText().trimmed().isEmpty()
-                                 ? m_settings->value("Separator/modelFilename",
-                                                     QStringLiteral("vocals_mel_band_roformer.ckpt"))
+                                 ? m_settings->value("Separator/modelFilename", DefaultSeparatorModel)
                                        .toString()
                                  : m_separatorModelCombo->currentText().trimmed();
     QSet<QString> models;
-    models.insert(QStringLiteral("vocals_mel_band_roformer.ckpt"));
+    models.insert(DefaultSeparatorModel);
+    models.insert(RoformerSeparatorModel);
 
     const QDir modelDirectory(m_separatorModelDirectoryEdit->text().trimmed());
     if (modelDirectory.exists()) {
@@ -1215,6 +1300,7 @@ void MainWidget::refreshSeparatorModels() {
     m_separatorModelCombo->addItems(sortedModels);
     m_separatorModelCombo->setCurrentText(selected);
     m_settings->setValue("Separator/modelFilename", selected);
+    updateSeparatorModelHint();
 }
 
 void MainWidget::showAdvancedSeparatorSettings() {

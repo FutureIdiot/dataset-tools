@@ -67,6 +67,28 @@ else ()
     message(WARNING "GameInfer separator runtime: uv was not found and will not be bundled")
 endif ()
 
+set(GAMEINFER_SEPARATOR_DEFAULT_MODEL "" CACHE FILEPATH
+        "Optional separator model to bundle as GameInfer's small default")
+option(GAMEINFER_REQUIRE_SEPARATOR_DEFAULT_MODEL
+        "Fail configuration when the bundled default separator model is unavailable" OFF)
+if (GAMEINFER_SEPARATOR_DEFAULT_MODEL AND EXISTS "${GAMEINFER_SEPARATOR_DEFAULT_MODEL}")
+    get_filename_component(GAMEINFER_SEPARATOR_DEFAULT_MODEL_REALPATH
+            "${GAMEINFER_SEPARATOR_DEFAULT_MODEL}" REALPATH)
+    get_filename_component(GAMEINFER_SEPARATOR_DEFAULT_MODEL_NAME
+            "${GAMEINFER_SEPARATOR_DEFAULT_MODEL_REALPATH}" NAME)
+    set(SEPARATOR_MODEL_OUTPUT_DIR "$<TARGET_FILE_DIR:${PROJECT_NAME}>/model/separator")
+    set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY LINK_DEPENDS
+            "${GAMEINFER_SEPARATOR_DEFAULT_MODEL_REALPATH}")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${SEPARATOR_MODEL_OUTPUT_DIR}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${GAMEINFER_SEPARATOR_DEFAULT_MODEL_REALPATH}"
+            "${SEPARATOR_MODEL_OUTPUT_DIR}/${GAMEINFER_SEPARATOR_DEFAULT_MODEL_NAME}"
+    )
+elseif (GAMEINFER_REQUIRE_SEPARATOR_DEFAULT_MODEL)
+    message(FATAL_ERROR "GameInfer separator model: bundled default model is required but unavailable")
+endif ()
+
 if (APPLE)
     install(FILES ${SEPARATOR_WORKER_FILES} DESTINATION GameInfer.app/Contents/MacOS/separator-worker)
     if (GAMEINFER_SEPARATOR_UV_EXECUTABLE)
@@ -74,12 +96,19 @@ if (APPLE)
                 DESTINATION GameInfer.app/Contents/MacOS/separator-runtime
                 RENAME uv)
     endif ()
+    if (GAMEINFER_SEPARATOR_DEFAULT_MODEL_REALPATH)
+        install(FILES "${GAMEINFER_SEPARATOR_DEFAULT_MODEL_REALPATH}"
+                DESTINATION GameInfer.app/Contents/MacOS/model/separator)
+    endif ()
 else ()
     install(FILES ${SEPARATOR_WORKER_FILES} DESTINATION separator-worker)
     if (GAMEINFER_SEPARATOR_UV_EXECUTABLE)
         install(PROGRAMS "${GAMEINFER_SEPARATOR_UV_REALPATH}"
                 DESTINATION separator-runtime
                 RENAME uv${CMAKE_EXECUTABLE_SUFFIX})
+    endif ()
+    if (GAMEINFER_SEPARATOR_DEFAULT_MODEL_REALPATH)
+        install(FILES "${GAMEINFER_SEPARATOR_DEFAULT_MODEL_REALPATH}" DESTINATION model/separator)
     endif ()
 endif ()
 

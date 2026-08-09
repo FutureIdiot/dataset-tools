@@ -249,6 +249,14 @@
         <translation>节拍（BPM）</translation>
     </message>
     <message>
+        <source>Queue stopped.</source>
+        <translation>队列已停止。</translation>
+    </message>
+    <message>
+        <source>Queue finished.</source>
+        <translation>队列已完成。</translation>
+    </message>
+    <message>
         <source>Use GPU</source>
         <translation>使用 GPU</translation>
     </message>
@@ -297,12 +305,28 @@
         <translation>▶ 任务队列（0）</translation>
     </message>
     <message>
+        <source>Ready</source>
+        <translation>就绪</translation>
+    </message>
+    <message>
         <source>Total: 0</source>
         <translation>总计：0</translation>
     </message>
     <message>
         <source>Warning</source>
         <translation>警告</translation>
+    </message>
+    <message>
+        <source>The first run will automatically download and install this model (about 913 MB).</source>
+        <translation>首次运行将自动下载并安装此模型（约 913 MB）。</translation>
+    </message>
+    <message>
+        <source>The first run will automatically download and install this model (about 67 MB).</source>
+        <translation>首次运行将自动下载并安装此模型（约 67 MB）。</translation>
+    </message>
+    <message>
+        <source>The first run will automatically download and install the selected model.</source>
+        <translation>首次运行将自动下载并安装所选模型。</translation>
     </message>
     <message>
         <source>Separating</source>
@@ -405,8 +429,36 @@ Overwrite them?</source>
 是否覆盖？</translation>
     </message>
     <message>
+        <source>Preparing the separator runtime...</source>
+        <translation>正在准备分离运行环境...</translation>
+    </message>
+    <message>
+        <source>Loading the GAME model...</source>
+        <translation>正在加载 GAME 模型...</translation>
+    </message>
+    <message>
+        <source>Loading the separator model; the first use downloads it automatically...</source>
+        <translation>正在加载分离模型；首次使用会自动下载...</translation>
+    </message>
+    <message>
+        <source>Source separation failed.</source>
+        <translation>音源分离失败。</translation>
+    </message>
+    <message>
+        <source>Separating vocals...</source>
+        <translation>正在分离人声...</translation>
+    </message>
+    <message>
+        <source>MIDI generation failed.</source>
+        <translation>MIDI 生成失败。</translation>
+    </message>
+    <message>
         <source>Failed to apply processing parameters.</source>
         <translation>应用处理参数失败。</translation>
+    </message>
+    <message>
+        <source>Generating MIDI...</source>
+        <translation>正在生成 MIDI...</translation>
     </message>
     <message>
         <source>The queue could not be started.</source>

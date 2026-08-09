@@ -105,6 +105,9 @@ private:
     void updateLanguageCombo();
     void updateTimeStepInfo(const std::filesystem::path &modelPath);
     void setModelLoadingStatus(ModelStatus status);
+    void setRuntimeStatus(const QString &status, bool busy);
+    void updateSeparatorModelHint() const;
+    [[nodiscard]] bool isSeparatorModelCached(const QString &filename) const;
     void retranslateUi();
     [[nodiscard]] QVector<QPair<int, QString>> availableLanguages() const;
     [[nodiscard]] quint64 selectedQueueJobId() const;
@@ -124,6 +127,7 @@ private:
     QLabel *m_separatorModelLabel = nullptr;
     QComboBox *m_separatorModelCombo = nullptr;
     QPushButton *m_separatorRefreshModelsButton = nullptr;
+    QLabel *m_separatorModelHintLabel = nullptr;
     QCheckBox *m_separatorGpuCheck = nullptr;
     QLabel *m_separatorOutputLabel = nullptr;
     QComboBox *m_separatorOutputCombo = nullptr;
@@ -179,6 +183,7 @@ private:
     QPushButton *m_startQueueButton;
     QPushButton *m_stopQueueButton;
     QLabel *m_currentQueueJobLabel;
+    QLabel *m_runtimeStatusLabel;
     QLabel *m_queueSummaryLabel;
     QProgressBar *m_progressBar;
     quint64 m_currentQueueJobId = 0;

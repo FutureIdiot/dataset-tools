@@ -48,9 +48,9 @@ Required for GameInfer. Download an archive with `onnx` in its filename from the
 ### GameInfer Usage
 
 1. Configure **Source separation** when the inputs are full mixes. Select the model cache, separator model,
-   backend, and either `Vocals` (default) or `Vocals + Instrumental`. Disable separation for
+   optional GPU acceleration, and either `Vocals` (default) or `Vocals + Instrumental`. Disable separation for
    files that are already clean vocal stems.
-2. Select the GAME model directory and the execution provider/device.
+2. Select the GAME model directory and optionally enable GPU acceleration.
 3. Add one or more WAV, FLAC, or MP3 files, or drag them into the task queue.
 4. Choose the default `Language` and `Tempo` for new tasks. Use **Apply to all editable tasks** when
    existing pending or failed tasks should use the same values.
@@ -76,6 +76,13 @@ The model selector is editable. Cached `.ckpt`, `.onnx`, `.pth`, and `.yaml` mod
 an `audio-separator` model filename may also be entered directly and will be downloaded into the selected cache
 when first loaded. Architecture-specific MDX, MDXC/RoFormer, VR, and Demucs options are available under
 **Advanced parameters**.
+
+Release packages bundle `Kim_Vocal_2.onnx` (about 67 MB) as the small default separator model. The model list
+also includes `vocals_mel_band_roformer.ckpt`, a larger optional RoFormer model (about 913 MB); when it is not
+already cached, GameInfer shows that the first run will download and install it automatically. More models can
+be selected by filename from the
+[`audio-separator` model list](https://github.com/nomadkaraoke/python-audio-separator#listing-and-filtering-available-models)
+and are downloaded from the upstream UVR model repositories on first use.
 
 The interface language can be changed between English and Simplified Chinese from **Settings**.
 

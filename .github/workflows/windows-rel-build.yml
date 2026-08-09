@@ -8,6 +8,10 @@ on:
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
+  SEPARATOR_MODEL_NAME: Kim_Vocal_2.onnx
+  SEPARATOR_MODEL_SIZE: "66759214"
+  SEPARATOR_MODEL_SHA256: ce74ef3b6a6024ce44211a07be9cf8bc6d87728cc852a68ab34eb8e58cde9c8b
+  SEPARATOR_MODEL_URL: https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/Kim_Vocal_2.onnx
 
 jobs:
   build:
@@ -76,12 +80,28 @@ jobs:
         run: |
           cmake -Dep=dml -P ../../scripts/setup-onnxruntime.cmake
 
+      - name: Download and verify default separator model
+        shell: pwsh
+        run: |
+          $modelPath = Join-Path $env:GITHUB_WORKSPACE $env:SEPARATOR_MODEL_NAME
+          Invoke-WebRequest -Uri $env:SEPARATOR_MODEL_URL -OutFile $modelPath
+
+          $actualSize = (Get-Item $modelPath).Length
+          if ($actualSize -ne [int64]$env:SEPARATOR_MODEL_SIZE) {
+            throw "Separator model size mismatch: expected $env:SEPARATOR_MODEL_SIZE, got $actualSize"
+          }
+
+          $actualHash = (Get-FileHash -Path $modelPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $env:SEPARATOR_MODEL_SHA256) {
+            throw "Separator model SHA-256 mismatch: expected $env:SEPARATOR_MODEL_SHA256, got $actualHash"
+          }
+
       - name: Configure CMake
         # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
         # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
         shell: bash
         working-directory: ${{github.workspace}}
-        run: cmake -B ${{env.GH_WORKSPACE}}/build -G Ninja -DBUILD_TESTS:BOOL=FALSE -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_INSTALL_PREFIX=${{env.GH_WORKSPACE}}/deploy -DCMAKE_PREFIX_PATH=${{env.QT_DIR}}/lib/cmake/Qt6/ -DCMAKE_TOOLCHAIN_FILE=${{env.GH_WORKSPACE}}/vcpkg/scripts/buildsystems/vcpkg.cmake -DONNXRUNTIME_ENABLE_DML=ON -DGAMEINFER_REQUIRE_SEPARATOR_UV=ON
+        run: cmake -B ${{env.GH_WORKSPACE}}/build -G Ninja -DBUILD_TESTS:BOOL=FALSE -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_INSTALL_PREFIX=${{env.GH_WORKSPACE}}/deploy -DCMAKE_PREFIX_PATH=${{env.QT_DIR}}/lib/cmake/Qt6/ -DCMAKE_TOOLCHAIN_FILE=${{env.GH_WORKSPACE}}/vcpkg/scripts/buildsystems/vcpkg.cmake -DONNXRUNTIME_ENABLE_DML=ON -DGAMEINFER_REQUIRE_SEPARATOR_UV=ON -DGAMEINFER_SEPARATOR_DEFAULT_MODEL="$GH_WORKSPACE/$SEPARATOR_MODEL_NAME" -DGAMEINFER_REQUIRE_SEPARATOR_DEFAULT_MODEL=ON
 
       - name: Build
         # Build your program with the given configuration
