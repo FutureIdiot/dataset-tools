@@ -94,7 +94,6 @@ private:
     void setupActionButtons();
     void setupQueueGroup();
     void setupExecutionBar();
-    void updateDeviceList() const;
     void setupProcessingGroup();
     ModelSelection currentModelSelection() const;
     ProcessingParameters currentProcessingParameters() const;
@@ -125,8 +124,7 @@ private:
     QLabel *m_separatorModelLabel = nullptr;
     QComboBox *m_separatorModelCombo = nullptr;
     QPushButton *m_separatorRefreshModelsButton = nullptr;
-    QLabel *m_separatorBackendLabel = nullptr;
-    QComboBox *m_separatorBackendCombo = nullptr;
+    QCheckBox *m_separatorGpuCheck = nullptr;
     QLabel *m_separatorOutputLabel = nullptr;
     QComboBox *m_separatorOutputCombo = nullptr;
     QPushButton *m_separatorAdvancedButton = nullptr;
@@ -137,12 +135,10 @@ private:
     QLabel *m_modelPathLabel = nullptr;
     QLineEdit *m_modelPathEdit;
     QPushButton *m_browseModelBtn;
-    QLabel *m_providerLabel = nullptr;
-    QComboBox *m_providerCombo;
-    QLabel *m_deviceLabel = nullptr;
-    QComboBox *m_deviceCombo;
+    QCheckBox *m_gameGpuCheck = nullptr;
     QLabel *m_modelStatusLabel;
     ModelStatus m_modelStatus = ModelStatus::NotLoaded;
+    bool m_gpuAvailable = false;
 
     // Segmentation group widgets
     QGroupBox *m_processingGroup = nullptr;
